@@ -1,0 +1,16 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npm install:*)",
+      "Bash(pnpm install:*)",
+      "Bash(pnpm dev:*)",
+      "Bash(npx localtunnel:*)",
+      "Bash(curl:*)",
+      "Bash(pnpm build:*)",
+      "Bash(vercel:*)",
+      "Bash(npx next build)",
+      "Bash(git remote:*)",
+      "Bash(git add:*)"
+    ]
+  }
+}
