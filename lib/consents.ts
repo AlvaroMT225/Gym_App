@@ -5,6 +5,7 @@ export type ConsentStatus = "ACTIVE" | "REVOKED" | "EXPIRED"
 export type ConsentScope =
   | "sessions:read"
   | "sessions:comment"
+  | "sessions:write"
   | "routines:read"
   | "routines:write"
   | "exercises:read"
@@ -16,6 +17,7 @@ export type ConsentScope =
 export const CONSENT_SCOPES: ConsentScope[] = [
   "sessions:read",
   "sessions:comment",
+  "sessions:write",
   "routines:read",
   "routines:write",
   "exercises:read",
@@ -57,6 +59,7 @@ const consentStore: Consent[] = [
     scopes: [
       "sessions:read",
       "sessions:comment",
+      "sessions:write",
       "routines:read",
       "routines:write",
       "exercises:read",

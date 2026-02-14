@@ -27,6 +27,7 @@ import {
 } from "@/lib/mock-data"
 import { formatNumber, formatDateLong } from "@/lib/utils"
 import { ScanCtaBanner } from "@/components/scan-cta-banner"
+import { PlannedSessionsClientView } from "@/components/planned-sessions-client-view"
 import { useAuth } from "@/lib/auth/auth-context"
 
 export function HomeDashboard() {
@@ -221,6 +222,9 @@ export function HomeDashboard() {
           </CardContent>
         </Card>
       </div>
+
+      {/* Suggested Sessions (if any from trainer) */}
+      <PlannedSessionsClientView />
 
       {/* Recent machines */}
       <div>

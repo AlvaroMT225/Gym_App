@@ -57,6 +57,7 @@ import { formatDateLong, formatNumber } from "@/lib/utils"
 const ALL_SCOPES = [
   { id: "sessions:read", label: "Sesiones" },
   { id: "sessions:comment", label: "Comentarios en sesiones" },
+  { id: "sessions:write", label: "Crear sesiones sugeridas" },
   { id: "routines:read", label: "Rutinas (lectura)" },
   { id: "routines:write", label: "Rutinas (escritura)" },
   { id: "exercises:read", label: "Ejercicios" },
@@ -317,7 +318,7 @@ export function ProfileView() {
                 <span>{user.email}</span>
               </div>
               <div className="flex items-center gap-1.5 text-xs text-muted-foreground mt-1">
-                <Calendar className="w-3.5 h-3.5" />
+                <CalendarIcon className="w-3.5 h-3.5" />
                 <span>Miembro desde {formatDateLong(user.memberSince)}</span>
               </div>
             </div>
@@ -794,7 +795,7 @@ export function ProfileView() {
                 <TabsContent value="history" className="flex flex-col gap-2 mt-4">
                   <div className="flex items-center justify-between mb-2">
                     <p className="text-xs text-muted-foreground">
-                      {showHidden ? "Mostrando todos" : "Ocultos no visibles"}
+                      {showHidden ? "Mostrando todos los consentimientos" : "Consentimientos ocultos no se muestran"}
                     </p>
                     <Button
                       variant="ghost"
@@ -863,19 +864,23 @@ export function ProfileView() {
                         </Badge>
                       ))}
                     </div>
-                    {consent.expires_at && (
+                    {consent.status === "REVOKED" && consent.revoked_at ? (
+                      <p className="text-[10px] text-muted-foreground mb-2">
+                        Revocado el: {formatDateLong(consent.revoked_at)}
+                      </p>
+                    ) : consent.expires_at ? (
                       <p className="text-[10px] text-muted-foreground mb-2">
                         Expira: {formatDateLong(consent.expires_at)}
                       </p>
-                    )}
+                    ) : null}
 
                     {/* Action buttons for history */}
                     <div className="flex gap-2 mt-2">
                       {consent.hidden_by_client ? (
                         <Button
                           size="sm"
-                          variant="outline"
-                          className="h-7 text-xs gap-1 bg-transparent"
+                          variant="default"
+                          className="h-7 text-xs gap-1 bg-primary text-primary-foreground hover:bg-primary/90"
                           onClick={() => handleRestoreConsent(consent.id)}
                         >
                           <Eye className="w-3 h-3" />

@@ -16,12 +16,28 @@ import {
   ChevronUp,
   Target,
   AlertTriangle,
+  Plus,
+  PencilLine,
+  Trash2,
+  CalendarIcon,
+  Eye,
 } from "lucide-react"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Textarea } from "@/components/ui/textarea"
 import { Alert, AlertDescription } from "@/components/ui/alert"
+import {
+  Dialog,
+  DialogContent,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog"
+import { Input } from "@/components/ui/input"
+import { Label } from "@/components/ui/label"
+import { Calendar } from "@/components/ui/calendar"
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
 import { formatDateLong, formatNumber } from "@/lib/utils"
 
 /* ---------- types ---------- */
@@ -366,6 +382,298 @@ function SessionsModule({
           </div>
         )}
       </CardContent>
+    </Card>
+  )
+}
+
+/* ---------- planned sessions module ---------- */
+
+function PlannedSessionsModule({
+  clientId,
+  canWrite,
+}: {
+  clientId: string
+  canWrite: boolean
+}) {
+  const [sessions, setSessions] = useState<any[]>([])
+  const [loading, setLoading] = useState(true)
+  const [builderOpen, setBuilderOpen] = useState(false)
+  const [editingId, setEditingId] = useState<string | null>(null)
+
+  // Form state
+  const [title, setTitle] = useState("")
+  const [description, setDescription] = useState("")
+  const [scheduledAt, setScheduledAt] = useState<Date | undefined>(undefined)
+  const [items, setItems] = useState<any[]>([])
+  const [changelog, setChangelog] = useState("")
+
+  const loadSessions = useCallback(async () => {
+    try {
+      const res = await fetch(`/api/trainer/clients/${clientId}/planned-sessions`)
+      if (res.ok) {
+        const data = await res.json()
+        setSessions(data.sessions || [])
+      }
+    } catch {
+      // ignore
+    } finally {
+      setLoading(false)
+    }
+  }, [clientId])
+
+  useEffect(() => {
+    loadSessions()
+  }, [loadSessions])
+
+  const openBuilder = (session?: any) => {
+    if (session) {
+      setEditingId(session.id)
+      setTitle(session.title)
+      setDescription(session.description || "")
+      setScheduledAt(session.scheduledAt ? new Date(session.scheduledAt) : undefined)
+      setItems(session.items)
+      setChangelog("")
+    } else {
+      setEditingId(null)
+      setTitle("")
+      setDescription("")
+      setScheduledAt(undefined)
+      setItems([])
+      setChangelog("Versión inicial")
+    }
+    setBuilderOpen(true)
+  }
+
+  const handleSave = async () => {
+    if (!title.trim() || items.length === 0) return
+
+    const payload = {
+      title: title.trim(),
+      description: description.trim() || undefined,
+      scheduledAt: scheduledAt ? scheduledAt.toISOString() : null,
+      items,
+      status: "PROPOSED",
+      changelogEntry: changelog.trim() || "Actualización",
+    }
+
+    try {
+      if (editingId) {
+        // Update
+        const res = await fetch(
+          `/api/trainer/clients/${clientId}/planned-sessions/${editingId}`,
+          {
+            method: "PUT",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(payload),
+          }
+        )
+        if (res.ok) {
+          setBuilderOpen(false)
+          loadSessions()
+        }
+      } else {
+        // Create
+        const res = await fetch(`/api/trainer/clients/${clientId}/planned-sessions`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload),
+        })
+        if (res.ok) {
+          setBuilderOpen(false)
+          loadSessions()
+        }
+      }
+    } catch {
+      // ignore
+    }
+  }
+
+  const handleDelete = async (sessionId: string) => {
+    if (!confirm("¿Eliminar esta sesión sugerida?")) return
+    try {
+      const res = await fetch(
+        `/api/trainer/clients/${clientId}/planned-sessions/${sessionId}`,
+        { method: "DELETE" }
+      )
+      if (res.ok) loadSessions()
+    } catch {
+      // ignore
+    }
+  }
+
+  if (loading) return <p className="text-sm text-muted-foreground">Cargando sesiones sugeridas...</p>
+
+  return (
+    <Card className="border border-border">
+      <CardHeader className="pb-3">
+        <div className="flex items-center justify-between">
+          <CardTitle className="text-sm font-semibold flex items-center gap-2">
+            <ClipboardList className="w-4 h-4 text-accent" />
+            Sesiones sugeridas
+          </CardTitle>
+          {canWrite && (
+            <Button size="sm" className="h-7 text-xs gap-1" onClick={() => openBuilder()}>
+              <Plus className="w-3.5 h-3.5" />
+              Crear
+            </Button>
+          )}
+        </div>
+      </CardHeader>
+      <CardContent className="flex flex-col gap-3">
+        {sessions.length === 0 ? (
+          <p className="text-sm text-muted-foreground text-center py-4">
+            Sin sesiones sugeridas.
+          </p>
+        ) : (
+          sessions.map((session) => (
+            <div key={session.id} className="border border-border rounded-lg p-3">
+              <div className="flex items-center justify-between mb-2">
+                <h4 className="text-sm font-semibold text-foreground">{session.title}</h4>
+                <Badge variant="secondary" className="text-[10px]">
+                  v{session.version}
+                </Badge>
+              </div>
+              {session.description && (
+                <p className="text-xs text-muted-foreground mb-2">{session.description}</p>
+              )}
+              {session.scheduledAt && (
+                <p className="text-[10px] text-muted-foreground mb-2">
+                  Sugerida para: {formatDateLong(session.scheduledAt)}
+                </p>
+              )}
+              <div className="flex flex-col gap-1 mb-2">
+                {session.items.map((item: any, idx: number) => (
+                  <div key={idx} className="text-xs text-foreground">
+                    {item.exerciseName}: {item.sets}x{item.reps} @ {item.restSec}s
+                    {item.targetRpe && ` RPE ${item.targetRpe}`}
+                  </div>
+                ))}
+              </div>
+              {session.changelog.length > 0 && (
+                <details className="text-[10px] text-muted-foreground">
+                  <summary className="cursor-pointer">Historial ({session.changelog.length})</summary>
+                  <ul className="list-disc list-inside mt-1">
+                    {session.changelog.map((log: string, i: number) => (
+                      <li key={i}>{log}</li>
+                    ))}
+                  </ul>
+                </details>
+              )}
+              {canWrite && (
+                <div className="flex gap-2 mt-2">
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="h-6 text-xs bg-transparent"
+                    onClick={() => openBuilder(session)}
+                  >
+                    <PencilLine className="w-3 h-3 mr-1" />
+                    Editar
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="h-6 text-xs bg-transparent text-destructive"
+                    onClick={() => handleDelete(session.id)}
+                  >
+                    <Trash2 className="w-3 h-3 mr-1" />
+                    Eliminar
+                  </Button>
+                </div>
+              )}
+            </div>
+          ))
+        )}
+      </CardContent>
+
+      {/* Builder Dialog */}
+      <Dialog open={builderOpen} onOpenChange={setBuilderOpen}>
+        <DialogContent className="sm:max-w-lg">
+          <DialogHeader>
+            <DialogTitle>{editingId ? "Editar" : "Crear"} sesión sugerida</DialogTitle>
+          </DialogHeader>
+          <div className="flex flex-col gap-3 py-2">
+            <div>
+              <Label className="text-sm">Título</Label>
+              <Input value={title} onChange={(e) => setTitle(e.target.value)} />
+            </div>
+            <div>
+              <Label className="text-sm">Descripción (opcional)</Label>
+              <Textarea
+                value={description}
+                onChange={(e) => setDescription(e.target.value)}
+                className="min-h-[60px]"
+              />
+            </div>
+            <div>
+              <Label className="text-sm">Fecha sugerida (opcional)</Label>
+              <Popover>
+                <PopoverTrigger asChild>
+                  <Button variant="outline" className="w-full justify-start bg-transparent">
+                    <CalendarIcon className="mr-2 h-4 w-4" />
+                    {scheduledAt
+                      ? scheduledAt.toLocaleDateString("es-ES")
+                      : "Seleccionar fecha"}
+                  </Button>
+                </PopoverTrigger>
+                <PopoverContent className="w-auto p-0">
+                  <Calendar
+                    mode="single"
+                    selected={scheduledAt}
+                    onSelect={setScheduledAt}
+                    initialFocus
+                  />
+                </PopoverContent>
+              </Popover>
+            </div>
+            {/* Item builder (simplified) */}
+            <div>
+              <Label className="text-sm">Ejercicios</Label>
+              <p className="text-xs text-muted-foreground mb-2">
+                (Builder simplificado - en producción, usar selector de catálogo completo)
+              </p>
+              {items.length === 0 && (
+                <p className="text-xs text-muted-foreground">Sin ejercicios añadidos.</p>
+              )}
+              <Button
+                size="sm"
+                variant="outline"
+                className="mt-2"
+                onClick={() =>
+                  setItems([
+                    ...items,
+                    {
+                      exerciseId: "ex-sentadilla",
+                      sets: 3,
+                      reps: 10,
+                      restSec: 90,
+                      targetRpe: 7,
+                    },
+                  ])
+                }
+              >
+                + Añadir ejercicio
+              </Button>
+            </div>
+            <div>
+              <Label className="text-sm">Nota de cambio</Label>
+              <Input
+                value={changelog}
+                onChange={(e) => setChangelog(e.target.value)}
+                placeholder="Ej: Ajuste de volumen"
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setBuilderOpen(false)}>
+              Cancelar
+            </Button>
+            <Button onClick={handleSave} disabled={!title.trim() || items.length === 0}>
+              Guardar
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </Card>
   )
 }
@@ -767,6 +1075,14 @@ export function TrainerClientDetail({ clientId }: { clientId: string }) {
           <SessionsModule clientId={clientId} canComment={hasScope("sessions:comment")} />
         ) : (
           <BlockedCard label="sus sesiones" />
+        )}
+
+        {/* Planned Sessions */}
+        {(hasScope("sessions:read") || hasScope("sessions:write")) && (
+          <PlannedSessionsModule
+            clientId={clientId}
+            canWrite={hasScope("sessions:write")}
+          />
         )}
 
         {/* Routine */}
