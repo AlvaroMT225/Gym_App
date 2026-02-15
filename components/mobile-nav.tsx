@@ -19,13 +19,19 @@ import {
   Bell,
   LogOut,
   Users,
+  LayoutDashboard,
+  Calendar,
+  AlertCircle,
+  FileText,
+  FolderOpen,
+  Settings,
 } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { useState } from "react"
 import { useStore } from "@/lib/store"
 import { useAuth } from "@/lib/auth/auth-context"
 
-const bottomTabs = [
+const clientBottomTabs = [
   { label: "Home", href: "/dashboard", icon: Home },
   { label: "Escanear", href: "/dashboard/scan", icon: ScanLine },
   { label: "Progreso", href: "/dashboard/progress", icon: TrendingUp },
@@ -33,7 +39,7 @@ const bottomTabs = [
   { label: "Mas", href: "#menu", icon: Menu },
 ]
 
-const menuItems = [
+const clientMenuItems = [
   { label: "Registro Manual", href: "/dashboard/manual", icon: ClipboardList },
   { label: "Retos & Rankings", href: "/dashboard/challenges", icon: Swords },
   { label: "Tutoriales", href: "/dashboard/tutorials", icon: BookOpen },
@@ -42,12 +48,31 @@ const menuItems = [
   { label: "Perfil", href: "/dashboard/profile", icon: User },
 ]
 
+const trainerBottomTabs = [
+  { label: "Dashboard", href: "/trainer", icon: LayoutDashboard },
+  { label: "Clientes", href: "/trainer/clients", icon: Users },
+  { label: "Calendario", href: "/trainer/calendar", icon: Calendar },
+  { label: "Alertas", href: "/trainer/alerts", icon: AlertCircle },
+  { label: "Mas", href: "#menu", icon: Menu },
+]
+
+const trainerMenuItems = [
+  { label: "Propuestas", href: "/trainer/proposals", icon: FileText },
+  { label: "Plantillas", href: "/trainer/templates", icon: FolderOpen },
+  { label: "Ejercicios", href: "/trainer/exercises", icon: Dumbbell },
+  { label: "Ajustes", href: "/trainer/settings", icon: Settings },
+]
+
 export function MobileNav() {
   const pathname = usePathname()
   const [menuOpen, setMenuOpen] = useState(false)
   const { notifications } = useStore()
   const { user: authUser, logout } = useAuth()
   const unreadPromoCount = notifications.filter((n) => n.type === "promo" && !n.read).length
+
+  const isTrainer = authUser?.role === "TRAINER"
+  const bottomTabs = isTrainer ? trainerBottomTabs : clientBottomTabs
+  const menuItems = isTrainer ? trainerMenuItems : clientMenuItems
 
   return (
     <>
@@ -77,22 +102,6 @@ export function MobileNav() {
               </button>
             </div>
             <nav className="flex-1 px-3 py-4">
-              {/* Trainer link */}
-              {(authUser?.role === "TRAINER" || authUser?.role === "ADMIN") && (
-                <Link
-                  href="/trainer/clients"
-                  onClick={() => setMenuOpen(false)}
-                  className={cn(
-                    "flex items-center gap-3 px-3 py-3 rounded-lg text-sm font-medium transition-colors mb-1",
-                    pathname.startsWith("/trainer")
-                      ? "bg-primary text-primary-foreground"
-                      : "text-foreground/70 hover:bg-muted hover:text-foreground"
-                  )}
-                >
-                  <Users className="w-5 h-5 shrink-0" />
-                  <span>Mis Clientes</span>
-                </Link>
-              )}
               <ul className="flex flex-col gap-1">
                 {menuItems.map((item) => {
                   const isActive = pathname === item.href || pathname.startsWith(item.href)
@@ -151,10 +160,11 @@ export function MobileNav() {
         <ul className="flex items-center justify-around px-2 py-1.5">
           {bottomTabs.map((tab) => {
             const isMenu = tab.href === "#menu"
+            const baseHref = isTrainer ? "/trainer" : "/dashboard"
             const isActive =
               !isMenu &&
               (pathname === tab.href ||
-                (tab.href !== "/dashboard" && pathname.startsWith(tab.href)))
+                (tab.href !== baseHref && pathname.startsWith(tab.href)))
 
             if (isMenu) {
               return (

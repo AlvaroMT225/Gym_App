@@ -1,6 +1,5 @@
-import { redirect } from "next/navigation"
+import { TrainerDashboard } from "@/components/trainer/trainer-dashboard"
 
 export default function TrainerIndexPage() {
-  redirect("/trainer/clients")
+  return <TrainerDashboard />
 }
-

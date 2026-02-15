@@ -66,7 +66,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           return { error: data.error || "Error al iniciar sesion" }
         }
         setUser(data.user)
-        router.push("/dashboard")
+        router.push(data.user.role === "TRAINER" ? "/trainer" : "/dashboard")
         router.refresh()
         return {}
       } catch {
@@ -89,7 +89,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           return { error: data.error || "Error al registrarse" }
         }
         setUser(data.user)
-        router.push("/dashboard")
+        router.push(data.user.role === "TRAINER" ? "/trainer" : "/dashboard")
         router.refresh()
         return {}
       } catch {

@@ -112,6 +112,12 @@ export function updatePlannedSession(input: {
   return { ...updated }
 }
 
+export function listPlannedSessionsForTrainer(trainerId: string): PlannedSession[] {
+  return plannedSessionsStore
+    .filter((ps) => ps.trainerId === trainerId)
+    .sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime())
+}
+
 export function deletePlannedSession(id: string): boolean {
   const idx = plannedSessionsStore.findIndex((ps) => ps.id === id)
   if (idx === -1) return false

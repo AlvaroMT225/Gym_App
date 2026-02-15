@@ -50,6 +50,14 @@ export async function middleware(request: NextRequest) {
     return response
   }
 
+  // Block TRAINER from /dashboard/* routes
+  if (session.role === "TRAINER" && pathname.startsWith("/dashboard")) {
+    if (pathname === "/dashboard/profile") {
+      return NextResponse.redirect(new URL("/trainer/settings", request.url))
+    }
+    return NextResponse.redirect(new URL("/trainer", request.url))
+  }
+
   return NextResponse.next()
 }
 

@@ -17,12 +17,18 @@ import {
   Bell,
   LogOut,
   Users,
+  LayoutDashboard,
+  FileText,
+  FolderOpen,
+  Calendar,
+  AlertCircle,
+  Settings,
 } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { useStore } from "@/lib/store"
 import { useAuth } from "@/lib/auth/auth-context"
 
-const navItems = [
+const clientNavItems = [
   { label: "Home", href: "/dashboard", icon: Home },
   { label: "Escanear / Maquina", href: "/dashboard/scan", icon: ScanLine },
   { label: "Registro Manual", href: "/dashboard/manual", icon: ClipboardList },
@@ -35,11 +41,25 @@ const navItems = [
   { label: "Perfil", href: "/dashboard/profile", icon: User },
 ]
 
+const trainerNavItems = [
+  { label: "Dashboard", href: "/trainer", icon: LayoutDashboard },
+  { label: "Clientes", href: "/trainer/clients", icon: Users },
+  { label: "Propuestas", href: "/trainer/proposals", icon: FileText },
+  { label: "Plantillas", href: "/trainer/templates", icon: FolderOpen },
+  { label: "Calendario", href: "/trainer/calendar", icon: Calendar },
+  { label: "Ejercicios", href: "/trainer/exercises", icon: Dumbbell },
+  { label: "Alertas", href: "/trainer/alerts", icon: AlertCircle },
+  { label: "Ajustes", href: "/trainer/settings", icon: Settings },
+]
+
 export function AppSidebar() {
   const pathname = usePathname()
   const { notifications } = useStore()
   const { user: authUser, logout } = useAuth()
   const unreadPromoCount = notifications.filter((n) => n.type === "promo" && !n.read).length
+
+  const isTrainer = authUser?.role === "TRAINER"
+  const navItems = isTrainer ? trainerNavItems : clientNavItems
 
   return (
     <aside className="hidden lg:flex flex-col w-64 min-h-screen bg-sidebar text-sidebar-foreground border-r border-sidebar-border">
@@ -52,35 +72,22 @@ export function AppSidebar() {
           <h1 className="font-sans text-lg font-bold tracking-tight text-sidebar-foreground">
             Minthy Training
           </h1>
-          <p className="text-xs text-sidebar-foreground/50">Tu gym inteligente</p>
+          <p className="text-xs text-sidebar-foreground/50">
+            {isTrainer ? "Panel Entrenador" : "Tu gym inteligente"}
+          </p>
         </div>
       </div>
-
-      {/* Trainer Nav */}
-      {(authUser?.role === "TRAINER" || authUser?.role === "ADMIN") && (
-        <div className="px-3 pt-3">
-          <Link
-            href="/trainer/clients"
-            className={cn(
-              "flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-all duration-200",
-              pathname.startsWith("/trainer")
-                ? "bg-sidebar-primary text-sidebar-primary-foreground shadow-sm"
-                : "text-sidebar-foreground/70 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
-            )}
-          >
-            <Users className="w-4.5 h-4.5 shrink-0" />
-            <span>Mis Clientes</span>
-          </Link>
-        </div>
-      )}
 
       {/* Nav Items */}
       <nav className="flex-1 px-3 py-4">
         <ul className="flex flex-col gap-1">
           {navItems.map((item) => {
             const isActive =
-              pathname === item.href ||
-              (item.href !== "/dashboard" && pathname.startsWith(item.href))
+              item.href === "/trainer"
+                ? pathname === "/trainer"
+                : item.href === "/dashboard"
+                  ? pathname === "/dashboard"
+                  : pathname.startsWith(item.href)
             return (
               <li key={item.href}>
                 <Link
