@@ -117,58 +117,111 @@ export function ExercisesContent() {
 
   // Renderizar ejercicios por región y categorías
   const renderExercisesByRegion = (region: "upper" | "lower") => {
-    const exercises = filteredExercises.filter((ex) => ex.region.includes(region))
+    // IMPORTANTE: Usar catálogo completo para secciones, no el filtrado
+    // Los filtros solo afectan a qué ejercicios se DESTACAN, no a cuáles se MUESTRAN
+    const allExercisesInRegion = exerciseCatalog.filter((ex) => ex.region.includes(region))
+
+    // Aplicar filtros para destacar
+    const matchesFilters = (ex: ExerciseItem) => {
+      // Si no hay filtros, todos coinciden
+      if (!searchQuery && !selectedMuscle && equipmentFilter === "all") return true
+
+      // Filtro de búsqueda
+      if (searchQuery.trim()) {
+        const q = searchQuery.toLowerCase()
+        const matchesSearch =
+          ex.name.toLowerCase().includes(q) ||
+          ex.code.toLowerCase().includes(q) ||
+          ex.primaryMuscle.toLowerCase().includes(q) ||
+          ex.secondaryMuscles.some((m) => m.toLowerCase().includes(q))
+        if (!matchesSearch) return false
+      }
+
+      // Filtro de músculo
+      if (selectedMuscle) {
+        const matchesMuscle =
+          ex.primaryMuscle === selectedMuscle || ex.secondaryMuscles.includes(selectedMuscle)
+        if (!matchesMuscle) return false
+      }
+
+      // Filtro de equipo
+      if (equipmentFilter !== "all") {
+        if (equipmentFilter === "maquina-qr" && !(ex.equipment === "Maquina" && ex.qrEnabled)) return false
+        if (equipmentFilter === "maquina-sin-qr" && !(ex.equipment === "Maquina" && !ex.qrEnabled)) return false
+        if (equipmentFilter === "peso-libre" && ex.equipment !== "Peso libre") return false
+        if (equipmentFilter === "polea-qr" && !(ex.equipment === "Polea" && ex.qrEnabled)) return false
+      }
+
+      return true
+    }
 
     if (region === "upper") {
       // Tren superior: Multifuncional, Espalda, Pecho, Hombros, Brazos
       const sections = [
-        { title: "Multifuncional", items: exercises.filter((ex) => ex.isMultifunctional) },
-        { title: "Espalda", items: exercises.filter((ex) => ex.category === "Espalda") },
-        { title: "Pecho", items: exercises.filter((ex) => ex.category === "Pecho") },
-        { title: "Hombros", items: exercises.filter((ex) => ex.category === "Hombros") },
+        { title: "Multifuncional", items: allExercisesInRegion.filter((ex) => ex.isMultifunctional) },
+        { title: "Espalda", items: allExercisesInRegion.filter((ex) => ex.category === "Espalda") },
+        { title: "Pecho", items: allExercisesInRegion.filter((ex) => ex.category === "Pecho") },
+        { title: "Hombros", items: allExercisesInRegion.filter((ex) => ex.category === "Hombros") },
       ]
 
       // Para Brazos: contar ejercicios donde Bíceps/Tríceps son secundarios
-      const bicepsTricepsCount = exercises.filter(
+      const bicepsTricepsItems = allExercisesInRegion.filter(
         (ex) =>
           ex.secondaryMuscles.includes("Biceps") || ex.secondaryMuscles.includes("Triceps")
-      ).length
+      )
 
       return (
-        <div className="flex flex-col gap-6">
+        <div className="flex flex-col gap-8">
           {sections.map((section) => (
             <div key={section.title}>
-              <h3 className="text-sm font-semibold text-muted-foreground uppercase tracking-wider mb-3">
+              <h3 className="text-xs font-bold text-muted-foreground uppercase tracking-widest mb-4 px-1">
                 {section.title}
               </h3>
               {section.items.length > 0 ? (
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                  {section.items.map((ex) => (
-                    <ExerciseCard key={ex.id} exercise={ex} onRegister={handleRegister} />
-                  ))}
+                <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
+                  {section.items.map((ex) => {
+                    const isHighlighted = matchesFilters(ex)
+                    return (
+                      <ExerciseCard
+                        key={ex.id}
+                        exercise={ex}
+                        onRegister={handleRegister}
+                        dimmed={!isHighlighted && (!!searchQuery || !!selectedMuscle || equipmentFilter !== "all")}
+                      />
+                    )
+                  })}
                 </div>
               ) : (
-                <p className="text-sm text-muted-foreground py-4">
-                  Aún no tienes ejercicios de {section.title} registrados.
-                </p>
+                <div className="rounded-lg border-2 border-dashed border-muted bg-muted/20 p-8 text-center">
+                  <p className="text-sm text-muted-foreground">
+                    Aún no tienes ejercicios de {section.title} registrados.
+                  </p>
+                </div>
               )}
             </div>
           ))}
 
           {/* Brazos (Bíceps / Tríceps) */}
           <div>
-            <h3 className="text-sm font-semibold text-muted-foreground uppercase tracking-wider mb-3">
+            <h3 className="text-xs font-bold text-muted-foreground uppercase tracking-widest mb-4 px-1">
               Brazos (Bíceps / Tríceps)
             </h3>
-            {bicepsTricepsCount > 0 ? (
-              <p className="text-sm text-foreground/70 py-4">
-                Ejercicios con Bíceps o Tríceps como músculo secundario:{" "}
-                <span className="font-semibold text-primary">{bicepsTricepsCount}</span>
-              </p>
+            {bicepsTricepsItems.length > 0 ? (
+              <div className="rounded-lg border border-border bg-card p-6">
+                <p className="text-sm text-foreground">
+                  Ejercicios con Bíceps o Tríceps como músculo secundario:{" "}
+                  <span className="font-bold text-primary text-base">{bicepsTricepsItems.length}</span>
+                </p>
+                <p className="text-xs text-muted-foreground mt-2">
+                  Usa los filtros de músculo arriba para ver estos ejercicios.
+                </p>
+              </div>
             ) : (
-              <p className="text-sm text-muted-foreground py-4">
-                Aún no tienes ejercicios de Brazos registrados.
-              </p>
+              <div className="rounded-lg border-2 border-dashed border-muted bg-muted/20 p-8 text-center">
+                <p className="text-sm text-muted-foreground">
+                  Aún no tienes ejercicios de Brazos registrados.
+                </p>
+              </div>
             )}
           </div>
         </div>
@@ -178,43 +231,53 @@ export function ExercisesContent() {
       const sections = [
         {
           title: "Multifuncional",
-          items: exercises.filter((ex) => ex.isMultifunctional),
+          items: allExercisesInRegion.filter((ex) => ex.isMultifunctional),
         },
         {
           title: "Cuádriceps",
-          items: exercises.filter((ex) => ex.category === "Cuadriceps"),
+          items: allExercisesInRegion.filter((ex) => ex.category === "Cuadriceps"),
         },
         {
           title: "Isquios / Femorales",
-          items: exercises.filter((ex) => ex.category === "Isquios / Femorales"),
+          items: allExercisesInRegion.filter((ex) => ex.category === "Isquios / Femorales"),
         },
         {
           title: "Glúteos / Abductores",
-          items: exercises.filter((ex) => ex.category === "Gluteos / Abductores"),
+          items: allExercisesInRegion.filter((ex) => ex.category === "Gluteos / Abductores"),
         },
         {
           title: "Core / Abdomen",
-          items: exercises.filter((ex) => ex.primaryMuscle === "Core"),
+          items: allExercisesInRegion.filter((ex) => ex.primaryMuscle === "Core"),
         },
       ]
 
       return (
-        <div className="flex flex-col gap-6">
+        <div className="flex flex-col gap-8">
           {sections.map((section) => (
             <div key={section.title}>
-              <h3 className="text-sm font-semibold text-muted-foreground uppercase tracking-wider mb-3">
+              <h3 className="text-xs font-bold text-muted-foreground uppercase tracking-widest mb-4 px-1">
                 {section.title}
               </h3>
               {section.items.length > 0 ? (
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                  {section.items.map((ex) => (
-                    <ExerciseCard key={ex.id} exercise={ex} onRegister={handleRegister} />
-                  ))}
+                <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
+                  {section.items.map((ex) => {
+                    const isHighlighted = matchesFilters(ex)
+                    return (
+                      <ExerciseCard
+                        key={ex.id}
+                        exercise={ex}
+                        onRegister={handleRegister}
+                        dimmed={!isHighlighted && (!!searchQuery || !!selectedMuscle || equipmentFilter !== "all")}
+                      />
+                    )
+                  })}
                 </div>
               ) : (
-                <p className="text-sm text-muted-foreground py-4">
-                  Aún no tienes ejercicios de {section.title} registrados.
-                </p>
+                <div className="rounded-lg border-2 border-dashed border-muted bg-muted/20 p-8 text-center">
+                  <p className="text-sm text-muted-foreground">
+                    Aún no tienes ejercicios de {section.title} registrados.
+                  </p>
+                </div>
               )}
             </div>
           ))}
@@ -224,58 +287,63 @@ export function ExercisesContent() {
   }
 
   return (
-    <div className="flex flex-col gap-6">
+    <div className="flex flex-col gap-6 pb-8">
       {/* Header */}
-      <div className="flex flex-col gap-4">
-        <div className="flex items-center justify-between">
-          <h1 className="text-2xl font-bold text-foreground">Ejercicios</h1>
-          <Button onClick={handleScanQR} className="gap-2">
-            <ScanLine className="w-4 h-4" />
-            Escanear QR
+      <div className="flex flex-col gap-4 sticky top-0 z-10 bg-background pb-4 border-b border-border">
+        <div className="flex items-center justify-between gap-4">
+          <h1 className="text-3xl font-bold text-foreground">Ejercicios</h1>
+          <Button onClick={handleScanQR} size="lg" className="gap-2 shadow-md">
+            <ScanLine className="w-5 h-5" />
+            <span className="hidden sm:inline">Escanear QR</span>
           </Button>
         </div>
 
         {/* Buscador */}
         <div className="relative">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+          <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-muted-foreground" />
           <input
             type="text"
             placeholder="Buscar ejercicio o máquina..."
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
-            className="w-full pl-10 pr-4 py-3 rounded-xl border border-input bg-card text-foreground text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+            className="w-full pl-12 pr-4 py-3.5 rounded-xl border-2 border-input bg-background text-foreground text-sm placeholder:text-muted-foreground focus:outline-none focus:border-primary focus:ring-4 focus:ring-primary/10 transition-all"
           />
         </div>
       </div>
 
       {/* Filtros */}
-      <div className="flex flex-col gap-3">
+      <div className="flex flex-col gap-4">
         {/* Chips de grupo muscular */}
-        <div className="flex flex-wrap gap-2">
-          {muscleGroups.map((muscle) => (
-            <button
-              key={muscle}
-              type="button"
-              onClick={() => setSelectedMuscle(selectedMuscle === muscle ? null : muscle)}
-              className={cn(
-                "px-3 py-1.5 rounded-full text-xs font-medium transition-colors",
-                selectedMuscle === muscle
-                  ? "bg-primary text-primary-foreground"
-                  : "bg-muted text-muted-foreground hover:bg-muted/80"
-              )}
-            >
-              {muscle}
-            </button>
-          ))}
+        <div>
+          <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-2.5 px-1">
+            Grupo muscular
+          </p>
+          <div className="flex flex-wrap gap-2">
+            {muscleGroups.map((muscle) => (
+              <button
+                key={muscle}
+                type="button"
+                onClick={() => setSelectedMuscle(selectedMuscle === muscle ? null : muscle)}
+                className={cn(
+                  "px-4 py-2 rounded-full text-xs font-semibold transition-all shadow-sm",
+                  selectedMuscle === muscle
+                    ? "bg-primary text-primary-foreground shadow-md scale-105"
+                    : "bg-muted text-muted-foreground hover:bg-muted/70 hover:scale-105"
+                )}
+              >
+                {muscle}
+              </button>
+            ))}
+          </div>
         </div>
 
         {/* Dropdown equipo + Orden */}
         <div className="flex flex-wrap items-center gap-3">
-          <div className="relative">
+          <div className="relative min-w-[180px]">
             <select
               value={equipmentFilter}
               onChange={(e) => setEquipmentFilter(e.target.value as EquipmentFilter)}
-              className="appearance-none pl-3 pr-8 py-2 rounded-lg border border-input bg-card text-foreground text-sm font-medium focus:outline-none focus:ring-2 focus:ring-ring cursor-pointer"
+              className="appearance-none w-full pl-4 pr-10 py-2.5 rounded-lg border-2 border-input bg-background text-foreground text-sm font-semibold focus:outline-none focus:border-primary focus:ring-4 focus:ring-primary/10 cursor-pointer transition-all"
             >
               <option value="all">Todos los equipos</option>
               <option value="maquina-qr">Máquina (QR)</option>
@@ -283,35 +351,39 @@ export function ExercisesContent() {
               <option value="peso-libre">Peso libre (Manual)</option>
               <option value="polea-qr">Polea (QR)</option>
             </select>
-            <ChevronDown className="absolute right-2 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground pointer-events-none" />
+            <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 w-5 h-5 text-muted-foreground pointer-events-none" />
           </div>
 
-          <div className="relative">
+          <div className="relative min-w-[120px]">
             <select
               value={order}
               onChange={(e) => setOrder(e.target.value as OrderType)}
-              className="appearance-none pl-3 pr-8 py-2 rounded-lg border border-input bg-card text-foreground text-sm font-medium focus:outline-none focus:ring-2 focus:ring-ring cursor-pointer"
+              className="appearance-none w-full pl-4 pr-10 py-2.5 rounded-lg border-2 border-input bg-background text-foreground text-sm font-semibold focus:outline-none focus:border-primary focus:ring-4 focus:ring-primary/10 cursor-pointer transition-all"
             >
               <option value="a-z">A→Z</option>
               <option value="z-a">Z→A</option>
             </select>
-            <ChevronDown className="absolute right-2 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground pointer-events-none" />
+            <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 w-5 h-5 text-muted-foreground pointer-events-none" />
           </div>
         </div>
       </div>
 
       {/* Tabs */}
-      <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as "upper" | "lower")}>
-        <TabsList className="grid w-full grid-cols-2">
-          <TabsTrigger value="upper">Tren superior</TabsTrigger>
-          <TabsTrigger value="lower">Inferior + Core</TabsTrigger>
+      <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as "upper" | "lower")} className="mt-2">
+        <TabsList className="grid w-full grid-cols-2 h-12 p-1">
+          <TabsTrigger value="upper" className="font-semibold text-sm">
+            Tren superior
+          </TabsTrigger>
+          <TabsTrigger value="lower" className="font-semibold text-sm">
+            Inferior + Core
+          </TabsTrigger>
         </TabsList>
 
-        <TabsContent value="upper" className="mt-6">
+        <TabsContent value="upper" className="mt-8">
           {renderExercisesByRegion("upper")}
         </TabsContent>
 
-        <TabsContent value="lower" className="mt-6">
+        <TabsContent value="lower" className="mt-8">
           {renderExercisesByRegion("lower")}
         </TabsContent>
       </Tabs>
@@ -363,61 +435,80 @@ export function ExercisesContent() {
 interface ExerciseCardProps {
   exercise: ExerciseItem
   onRegister: (exercise: ExerciseItem) => void
+  dimmed?: boolean
 }
 
-function ExerciseCard({ exercise, onRegister }: ExerciseCardProps) {
+function ExerciseCard({ exercise, onRegister, dimmed = false }: ExerciseCardProps) {
   return (
-    <Card className="border border-border hover:border-primary/40 hover:shadow-md transition-all duration-200">
-      <CardContent className="pt-6">
-        <div className="flex flex-col gap-3">
-          {/* Código */}
-          <Badge variant="secondary" className="w-fit text-xs font-mono">
-            {exercise.code}
-          </Badge>
+    <Card
+      className={cn(
+        "border border-border hover:border-primary/40 hover:shadow-lg transition-all duration-200 group",
+        dimmed && "opacity-40 hover:opacity-100"
+      )}
+    >
+      <CardContent className="p-5">
+        <div className="flex flex-col gap-3.5">
+          {/* Header: Código + Badge QR */}
+          <div className="flex items-start justify-between gap-2">
+            <Badge variant="secondary" className="text-[10px] font-mono font-bold px-2 py-0.5">
+              {exercise.code}
+            </Badge>
+            {exercise.qrEnabled ? (
+              <div className="flex items-center gap-1 text-[10px] font-semibold text-primary">
+                <CheckCircle2 className="w-3 h-3" />
+                <span className="uppercase tracking-wide">QR</span>
+              </div>
+            ) : (
+              <div className="flex items-center gap-1 text-[10px] font-semibold text-orange-500">
+                <AlertTriangle className="w-3 h-3" />
+                <span className="uppercase tracking-wide">Manual</span>
+              </div>
+            )}
+          </div>
 
           {/* Nombre */}
-          <h4 className="text-base font-semibold text-foreground">{exercise.name}</h4>
+          <div>
+            <h4 className="text-base font-bold text-foreground leading-tight mb-1">
+              {exercise.name}
+            </h4>
+            <p className="text-xs text-muted-foreground">
+              {exercise.equipment}
+            </p>
+          </div>
 
           {/* Chips de músculos */}
           <div className="flex flex-wrap gap-1.5">
-            <Badge className="text-xs bg-primary/10 text-primary border-0 font-medium">
+            <Badge className="text-[11px] bg-primary text-primary-foreground border-0 font-semibold px-2 py-0.5">
               {exercise.primaryMuscle}
             </Badge>
             {exercise.secondaryMuscles.map((muscle) => (
               <Badge
                 key={muscle}
                 variant="outline"
-                className="text-xs text-muted-foreground border-muted-foreground/30"
+                className="text-[11px] text-muted-foreground border-border/50 font-medium px-2 py-0.5"
               >
                 {muscle}
               </Badge>
             ))}
           </div>
 
-          {/* Equipo + modo */}
-          <p className="text-xs text-muted-foreground">
-            {exercise.equipment} • {exercise.qrEnabled ? "QR" : "Manual"}
-          </p>
-
-          {/* Badge de escaneo */}
-          {exercise.qrEnabled ? (
-            <div className="flex items-center gap-1.5 text-xs text-primary">
-              <CheckCircle2 className="w-3.5 h-3.5" />
-              <span className="font-medium">Escaneable (QR)</span>
-            </div>
-          ) : (
-            <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
-              <AlertTriangle className="w-3.5 h-3.5" />
-              <span className="font-medium">Manual (sin QR) • no cuenta para ranking</span>
-            </div>
+          {/* Info adicional */}
+          {!exercise.qrEnabled && (
+            <p className="text-[10px] text-orange-600 bg-orange-50 dark:bg-orange-950/20 px-2 py-1 rounded">
+              No cuenta para ranking
+            </p>
           )}
 
           {/* Botón Registrar */}
           <Button
             onClick={() => onRegister(exercise)}
             size="sm"
-            className="w-full mt-2"
-            variant={exercise.qrEnabled ? "default" : "outline"}
+            className={cn(
+              "w-full mt-1 font-semibold transition-all",
+              exercise.qrEnabled
+                ? "bg-primary hover:bg-primary/90 shadow-sm"
+                : "bg-muted hover:bg-muted/80 text-foreground"
+            )}
           >
             <Dumbbell className="w-4 h-4 mr-2" />
             Registrar
