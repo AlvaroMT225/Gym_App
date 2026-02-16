@@ -4,7 +4,6 @@ import Link from "next/link"
 import { usePathname } from "next/navigation"
 import {
   Home,
-  ScanLine,
   ClipboardList,
   TrendingUp,
   Award,
@@ -29,9 +28,9 @@ import { useStore } from "@/lib/store"
 import { useAuth } from "@/lib/auth/auth-context"
 
 const clientNavItems = [
-  { label: "Home", href: "/dashboard", icon: Home },
-  { label: "Escanear / Maquina", href: "/dashboard/scan", icon: ScanLine },
-  { label: "Registro Manual", href: "/dashboard/manual", icon: ClipboardList },
+  { label: "Inicio", href: "/dashboard", icon: Home },
+  { label: "Ejercicios", href: "/dashboard/exercises", icon: Dumbbell },
+  { label: "Registro manual", href: "/dashboard/manual", icon: ClipboardList },
   { label: "Progreso", href: "/dashboard/progress", icon: TrendingUp },
   { label: "Logros", href: "/dashboard/achievements", icon: Award },
   { label: "Retos & Rankings", href: "/dashboard/challenges", icon: Swords },
