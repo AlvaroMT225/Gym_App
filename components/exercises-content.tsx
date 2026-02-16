@@ -178,7 +178,7 @@ export function ExercisesContent() {
                 {section.title}
               </h3>
               {section.items.length > 0 ? (
-                <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5">
                   {section.items.map((ex) => {
                     const isHighlighted = matchesFilters(ex)
                     return (
@@ -192,7 +192,7 @@ export function ExercisesContent() {
                   })}
                 </div>
               ) : (
-                <div className="rounded-lg border-2 border-dashed border-muted bg-muted/20 p-8 text-center">
+                <div className="rounded-lg border-2 border-dashed border-muted bg-muted/20 p-10 text-center">
                   <p className="text-sm text-muted-foreground">
                     Aún no tienes ejercicios de {section.title} registrados.
                   </p>
@@ -259,7 +259,7 @@ export function ExercisesContent() {
                 {section.title}
               </h3>
               {section.items.length > 0 ? (
-                <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5">
                   {section.items.map((ex) => {
                     const isHighlighted = matchesFilters(ex)
                     return (
@@ -273,7 +273,7 @@ export function ExercisesContent() {
                   })}
                 </div>
               ) : (
-                <div className="rounded-lg border-2 border-dashed border-muted bg-muted/20 p-8 text-center">
+                <div className="rounded-lg border-2 border-dashed border-muted bg-muted/20 p-10 text-center">
                   <p className="text-sm text-muted-foreground">
                     Aún no tienes ejercicios de {section.title} registrados.
                   </p>
@@ -287,106 +287,113 @@ export function ExercisesContent() {
   }
 
   return (
-    <div className="flex flex-col gap-6 pb-8">
+    <div className="w-full">
       {/* Header */}
-      <div className="flex flex-col gap-4 sticky top-0 z-10 bg-background pb-4 border-b border-border">
-        <div className="flex items-center justify-between gap-4">
-          <h1 className="text-3xl font-bold text-foreground">Ejercicios</h1>
-          <Button onClick={handleScanQR} size="lg" className="gap-2 shadow-md">
-            <ScanLine className="w-5 h-5" />
-            <span className="hidden sm:inline">Escanear QR</span>
-          </Button>
-        </div>
+      <div className="sticky top-0 z-10 bg-background border-b border-border">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
+          <div className="flex flex-col gap-5">
+            <div className="flex items-center justify-between gap-4">
+              <h1 className="text-3xl font-bold text-foreground">Ejercicios</h1>
+              <Button onClick={handleScanQR} size="lg" className="gap-2 shadow-md">
+                <ScanLine className="w-5 h-5" />
+                <span className="hidden sm:inline">Escanear QR</span>
+              </Button>
+            </div>
 
-        {/* Buscador */}
-        <div className="relative">
-          <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-muted-foreground" />
-          <input
-            type="text"
-            placeholder="Buscar ejercicio o máquina..."
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-            className="w-full pl-12 pr-4 py-3.5 rounded-xl border-2 border-input bg-background text-foreground text-sm placeholder:text-muted-foreground focus:outline-none focus:border-primary focus:ring-4 focus:ring-primary/10 transition-all"
-          />
+            {/* Buscador */}
+            <div className="relative">
+              <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-muted-foreground" />
+              <input
+                type="text"
+                placeholder="Buscar ejercicio o máquina..."
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                className="w-full pl-12 pr-4 py-3.5 rounded-xl border-2 border-input bg-background text-foreground text-sm placeholder:text-muted-foreground focus:outline-none focus:border-primary focus:ring-4 focus:ring-primary/10 transition-all"
+              />
+            </div>
+          </div>
         </div>
       </div>
 
-      {/* Filtros */}
-      <div className="flex flex-col gap-4">
-        {/* Chips de grupo muscular */}
-        <div>
-          <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-2.5 px-1">
-            Grupo muscular
-          </p>
-          <div className="flex flex-wrap gap-2">
-            {muscleGroups.map((muscle) => (
-              <button
-                key={muscle}
-                type="button"
-                onClick={() => setSelectedMuscle(selectedMuscle === muscle ? null : muscle)}
-                className={cn(
-                  "px-4 py-2 rounded-full text-xs font-semibold transition-all shadow-sm",
-                  selectedMuscle === muscle
-                    ? "bg-primary text-primary-foreground shadow-md scale-105"
-                    : "bg-muted text-muted-foreground hover:bg-muted/70 hover:scale-105"
-                )}
+      {/* Content Container */}
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+        {/* Filtros */}
+        <div className="flex flex-col gap-5 mb-8">
+          {/* Chips de grupo muscular */}
+          <div>
+            <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-3">
+              Grupo muscular
+            </p>
+            <div className="flex flex-wrap gap-2">
+              {muscleGroups.map((muscle) => (
+                <button
+                  key={muscle}
+                  type="button"
+                  onClick={() => setSelectedMuscle(selectedMuscle === muscle ? null : muscle)}
+                  className={cn(
+                    "px-4 py-2 rounded-full text-xs font-semibold transition-all shadow-sm",
+                    selectedMuscle === muscle
+                      ? "bg-primary text-primary-foreground shadow-md scale-105"
+                      : "bg-muted text-muted-foreground hover:bg-muted/70 hover:scale-105"
+                  )}
+                >
+                  {muscle}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* Dropdown equipo + Orden */}
+          <div className="flex flex-wrap items-center gap-3">
+            <div className="relative min-w-[180px]">
+              <select
+                value={equipmentFilter}
+                onChange={(e) => setEquipmentFilter(e.target.value as EquipmentFilter)}
+                className="appearance-none w-full pl-4 pr-10 py-2.5 rounded-lg border-2 border-input bg-background text-foreground text-sm font-semibold focus:outline-none focus:border-primary focus:ring-4 focus:ring-primary/10 cursor-pointer transition-all"
               >
-                {muscle}
-              </button>
-            ))}
+                <option value="all">Todos los equipos</option>
+                <option value="maquina-qr">Máquina (QR)</option>
+                <option value="maquina-sin-qr">Máquina (sin QR)</option>
+                <option value="peso-libre">Peso libre (Manual)</option>
+                <option value="polea-qr">Polea (QR)</option>
+              </select>
+              <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 w-5 h-5 text-muted-foreground pointer-events-none" />
+            </div>
+
+            <div className="relative min-w-[120px]">
+              <select
+                value={order}
+                onChange={(e) => setOrder(e.target.value as OrderType)}
+                className="appearance-none w-full pl-4 pr-10 py-2.5 rounded-lg border-2 border-input bg-background text-foreground text-sm font-semibold focus:outline-none focus:border-primary focus:ring-4 focus:ring-primary/10 cursor-pointer transition-all"
+              >
+                <option value="a-z">A→Z</option>
+                <option value="z-a">Z→A</option>
+              </select>
+              <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 w-5 h-5 text-muted-foreground pointer-events-none" />
+            </div>
           </div>
         </div>
 
-        {/* Dropdown equipo + Orden */}
-        <div className="flex flex-wrap items-center gap-3">
-          <div className="relative min-w-[180px]">
-            <select
-              value={equipmentFilter}
-              onChange={(e) => setEquipmentFilter(e.target.value as EquipmentFilter)}
-              className="appearance-none w-full pl-4 pr-10 py-2.5 rounded-lg border-2 border-input bg-background text-foreground text-sm font-semibold focus:outline-none focus:border-primary focus:ring-4 focus:ring-primary/10 cursor-pointer transition-all"
-            >
-              <option value="all">Todos los equipos</option>
-              <option value="maquina-qr">Máquina (QR)</option>
-              <option value="maquina-sin-qr">Máquina (sin QR)</option>
-              <option value="peso-libre">Peso libre (Manual)</option>
-              <option value="polea-qr">Polea (QR)</option>
-            </select>
-            <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 w-5 h-5 text-muted-foreground pointer-events-none" />
-          </div>
+        {/* Tabs */}
+        <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as "upper" | "lower")}>
+          <TabsList className="grid w-full grid-cols-2 h-12 p-1 mb-8">
+            <TabsTrigger value="upper" className="font-semibold text-sm">
+              Tren superior
+            </TabsTrigger>
+            <TabsTrigger value="lower" className="font-semibold text-sm">
+              Inferior + Core
+            </TabsTrigger>
+          </TabsList>
 
-          <div className="relative min-w-[120px]">
-            <select
-              value={order}
-              onChange={(e) => setOrder(e.target.value as OrderType)}
-              className="appearance-none w-full pl-4 pr-10 py-2.5 rounded-lg border-2 border-input bg-background text-foreground text-sm font-semibold focus:outline-none focus:border-primary focus:ring-4 focus:ring-primary/10 cursor-pointer transition-all"
-            >
-              <option value="a-z">A→Z</option>
-              <option value="z-a">Z→A</option>
-            </select>
-            <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 w-5 h-5 text-muted-foreground pointer-events-none" />
-          </div>
-        </div>
+          <TabsContent value="upper" className="mt-0">
+            {renderExercisesByRegion("upper")}
+          </TabsContent>
+
+          <TabsContent value="lower" className="mt-0">
+            {renderExercisesByRegion("lower")}
+          </TabsContent>
+        </Tabs>
       </div>
-
-      {/* Tabs */}
-      <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as "upper" | "lower")} className="mt-2">
-        <TabsList className="grid w-full grid-cols-2 h-12 p-1">
-          <TabsTrigger value="upper" className="font-semibold text-sm">
-            Tren superior
-          </TabsTrigger>
-          <TabsTrigger value="lower" className="font-semibold text-sm">
-            Inferior + Core
-          </TabsTrigger>
-        </TabsList>
-
-        <TabsContent value="upper" className="mt-8">
-          {renderExercisesByRegion("upper")}
-        </TabsContent>
-
-        <TabsContent value="lower" className="mt-8">
-          {renderExercisesByRegion("lower")}
-        </TabsContent>
-      </Tabs>
 
       {/* Modal de registro manual (placeholder por ahora) */}
       {manualModalOpen && selectedExercise && (
