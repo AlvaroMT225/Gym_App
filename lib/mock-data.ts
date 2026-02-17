@@ -276,19 +276,47 @@ export const gymSchedule: GymSchedule[] = [
   { day: "Domingo", open: "08:00", close: "14:00" },
 ]
 
-// ── Entrenador Asignado ───────────────────────────────────────
-export const userCoach: CoachInfo = {
-  id: "trainer-1",
-  name: "Coach Maria",
-  avatar: "CM",
-  email: "trainer@minty.demo",
-  phone: "+593 99 123 4567",
-  specialty: "Fuerza e hipertrofia",
-  availability: [
-    { day: "Lunes a Viernes", hours: "08:00 - 12:00, 15:00 - 19:00" },
-    { day: "Sabado", hours: "09:00 - 13:00" },
-  ],
-}
+// ── Directorio de Entrenadores (todos los coaches del gym) ────
+export const coachDirectory: CoachInfo[] = [
+  {
+    id: "trainer-1",
+    name: "Coach Maria",
+    avatar: "CM",
+    email: "trainer@minty.demo",
+    phone: "+593 99 123 4567",
+    specialty: "Fuerza e hipertrofia",
+    availability: [
+      { day: "Lunes a Viernes", hours: "08:00 - 12:00, 15:00 - 19:00" },
+      { day: "Sabado", hours: "09:00 - 13:00" },
+    ],
+  },
+  {
+    id: "trainer-2",
+    name: "Coach Pedro",
+    avatar: "CP",
+    email: "pedro@minty.demo",
+    phone: "+593 98 765 4321",
+    specialty: "Cardio y resistencia",
+    availability: [
+      { day: "Lunes, Miercoles, Viernes", hours: "07:00 - 13:00" },
+      { day: "Sabado", hours: "08:00 - 12:00" },
+    ],
+  },
+  {
+    id: "trainer-3",
+    name: "Coach Laura",
+    avatar: "CL",
+    email: "laura@minty.demo",
+    phone: "+593 97 654 3210",
+    specialty: "Yoga y movilidad",
+    availability: [
+      { day: "Martes y Jueves", hours: "09:00 - 14:00, 16:00 - 19:00" },
+    ],
+  },
+]
+
+// ── Entrenador Asignado (alias retrocompatible) ───────────────
+export const userCoach: CoachInfo = coachDirectory[0]
 
 // ── Rutinas del Usuario ───────────────────────────────────────
 export const userRoutines: Routine[] = [

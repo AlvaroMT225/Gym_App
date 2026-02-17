@@ -87,16 +87,22 @@ export interface ClientPR {
 
 export const trainers: TrainerProfile[] = [
   {
-    id: "demo-trainer",
-    name: "Carlos Entrenador",
+    id: "trainer-1",
+    name: "Coach Maria",
     email: "trainer@minty.demo",
-    avatar: "CE",
+    avatar: "CM",
   },
   {
-    id: "demo-admin",
-    name: "Admin Minthy",
-    email: "admin@minty.demo",
-    avatar: "AM",
+    id: "trainer-2",
+    name: "Coach Pedro",
+    email: "pedro@minty.demo",
+    avatar: "CP",
+  },
+  {
+    id: "trainer-3",
+    name: "Coach Laura",
+    email: "laura@minty.demo",
+    avatar: "CL",
   },
 ]
 

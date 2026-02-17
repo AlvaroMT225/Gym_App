@@ -56,7 +56,7 @@ import {
 import { useStore } from "@/lib/store"
 import { useAuth } from "@/lib/auth/auth-context"
 import { formatDateLong, formatNumber } from "@/lib/utils"
-import { userCoach } from "@/lib/mock-data"
+import { coachDirectory } from "@/lib/mock-data"
 
 const ALL_SCOPES = [
   { id: "sessions:read", label: "Sesiones" },
@@ -289,16 +289,22 @@ export function ProfileView() {
 
   const availableTrainers = trainers.filter((t) => !trainerHasActiveConsent(t.id))
 
-  // Link "Mi entrenador" visibility to active consent state
-  const hasActiveConsent = consents.some(
+  // Derive active coach from the first ACTIVE consent
+  const activeConsent = consents.find(
     (c) => c.status === "ACTIVE" && !c.hidden_by_client
   )
-  // Show block while loading (optimistic) OR when there's a confirmed active consent
+  const activeCoach =
+    activeConsent?.trainer?.id
+      ? (coachDirectory.find((c) => c.id === activeConsent.trainer!.id) ?? null)
+      : consentLoading && user.planType === "COACHING"
+        ? (coachDirectory.find((c) => c.id === "trainer-1") ?? null) // optimistic fallback while loading
+        : null
+
+  // Show block only when there's a resolved active coach
   const showCoachBlock =
-    !!userCoach &&
     user.planType === "COACHING" &&
     user.coachStatus === "ACTIVE" &&
-    (consentLoading || hasActiveConsent)
+    !!activeCoach
 
   const handleOpenEdit = () => {
     setEditName(user.name)
@@ -437,7 +443,7 @@ export function ProfileView() {
       </Card>
 
       {/* Mi entrenador — visible solo si hay un consent ACTIVE con un entrenador */}
-      {showCoachBlock && (
+      {showCoachBlock && activeCoach && (
         <Card className="border border-primary/20 bg-primary/5">
           <CardHeader className="pb-2">
             <CardTitle className="text-sm font-semibold flex items-center gap-2">
@@ -448,24 +454,24 @@ export function ProfileView() {
           <CardContent className="flex flex-col gap-3">
             <div className="flex items-center gap-3">
               <div className="flex items-center justify-center w-10 h-10 rounded-full bg-primary text-primary-foreground text-xs font-bold">
-                {userCoach.avatar}
+                {activeCoach.avatar}
               </div>
               <div>
-                <p className="text-sm font-semibold text-foreground">{userCoach.name}</p>
-                <p className="text-xs text-muted-foreground">{userCoach.specialty}</p>
+                <p className="text-sm font-semibold text-foreground">{activeCoach.name}</p>
+                <p className="text-xs text-muted-foreground">{activeCoach.specialty}</p>
               </div>
             </div>
             <div className="flex items-center gap-2 text-xs text-muted-foreground">
-              <Phone className="w-3.5 h-3.5" /> {userCoach.phone}
+              <Phone className="w-3.5 h-3.5" /> {activeCoach.phone}
             </div>
             <div className="flex items-center gap-2 text-xs text-muted-foreground">
-              <Mail className="w-3.5 h-3.5" /> {userCoach.email}
+              <Mail className="w-3.5 h-3.5" /> {activeCoach.email}
             </div>
             <div className="mt-1">
               <p className="text-xs font-medium text-foreground mb-1 flex items-center gap-1">
                 <Clock className="w-3.5 h-3.5" /> Disponibilidad
               </p>
-              {userCoach.availability.map((slot, i) => (
+              {activeCoach.availability.map((slot, i) => (
                 <p key={i} className="text-xs text-muted-foreground ml-5">
                   {slot.day}: {slot.hours}
                 </p>
