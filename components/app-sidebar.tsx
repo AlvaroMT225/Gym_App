@@ -22,6 +22,7 @@ import {
   Calendar,
   AlertCircle,
   Settings,
+  LayoutList,
 } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { useStore } from "@/lib/store"
@@ -29,8 +30,8 @@ import { useAuth } from "@/lib/auth/auth-context"
 
 const clientNavItems = [
   { label: "Inicio", href: "/dashboard", icon: Home },
-  { label: "Ejercicios", href: "/dashboard/exercises", icon: Dumbbell },
-  { label: "Registro manual", href: "/dashboard/manual", icon: ClipboardList },
+  { label: "Máquinas", href: "/dashboard/machines", icon: Dumbbell },
+  { label: "Mi Rutina", href: "/dashboard/routines", icon: ClipboardList },
   { label: "Progreso", href: "/dashboard/progress", icon: TrendingUp },
   { label: "Logros", href: "/dashboard/achievements", icon: Award },
   { label: "Retos & Rankings", href: "/dashboard/challenges", icon: Swords },

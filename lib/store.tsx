@@ -1,7 +1,7 @@
 "use client"
 
 import React, { createContext, useContext, useState, useCallback, useEffect, type ReactNode } from "react"
-import type { SetRecord, Achievement, Challenge, Promo } from "@/lib/mock-data"
+import type { SetRecord, Achievement, Challenge, Promo, Routine, WorkoutSession, CoachInfo, GymSchedule } from "@/lib/mock-data"
 import {
   setHistory as initialSets,
   achievements as initialAchievements,
@@ -11,6 +11,11 @@ import {
   rankings as initialRankings,
   gymMembers as initialGymMembers,
   tutorials as initialTutorials,
+  gymSchedule as initialGymSchedule,
+  userCoach as initialUserCoach,
+  userRoutines as initialUserRoutines,
+  coachRoutines as initialCoachRoutines,
+  workoutSessions as initialWorkoutSessions,
 } from "@/lib/mock-data"
 
 // ── Session (extends SetRecord with source) ───────────────────
@@ -122,6 +127,21 @@ interface StoreState {
   // User
   user: typeof initialUser
   updateUser: (data: { name: string; email: string }) => void
+
+  // Gym schedule
+  gymSchedule: GymSchedule[]
+
+  // Coach info
+  userCoach: CoachInfo | null
+
+  // Routines
+  userRoutines: Routine[]
+  coachRoutines: Routine[]
+  allRoutines: Routine[]
+
+  // Workout sessions history
+  workoutSessions: WorkoutSession[]
+  getSessionsByDateRange: (startDate: string, endDate: string) => WorkoutSession[]
 }
 
 // ── Convert legacy setHistory to sessions ─────────────────────
@@ -229,6 +249,13 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   const [weightUnit, setWeightUnit] = useState<"kg" | "lb">("kg")
   const [notificationsList, setNotificationsList] = useState<Notification[]>(buildNotifications)
   const [userData, setUserData] = useState(initialUser)
+  const [gymScheduleData] = useState<GymSchedule[]>(initialGymSchedule)
+  const [userCoachData] = useState<CoachInfo | null>(
+    initialUser.coachStatus === "ACTIVE" ? initialUserCoach : null
+  )
+  const [userRoutinesData] = useState<Routine[]>(initialUserRoutines)
+  const [coachRoutinesData] = useState<Routine[]>(initialCoachRoutines)
+  const [workoutSessionsData] = useState<WorkoutSession[]>(initialWorkoutSessions)
 
   const addSession = useCallback((session: Omit<Session, "id">) => {
     setSessions((prev) => [
@@ -303,6 +330,15 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     )
   }, [])
 
+  const getSessionsByDateRange = useCallback((startDate: string, endDate: string) => {
+    const start = new Date(startDate).getTime()
+    const end = new Date(endDate).getTime()
+    return workoutSessionsData.filter(s => {
+      const sessionDate = new Date(s.date).getTime()
+      return sessionDate >= start && sessionDate <= end
+    })
+  }, [workoutSessionsData])
+
   return (
     <StoreContext.Provider
       value={{
@@ -328,6 +364,13 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         rankings: initialRankings,
         user: userData,
         updateUser,
+        gymSchedule: gymScheduleData,
+        userCoach: userCoachData,
+        userRoutines: userRoutinesData,
+        coachRoutines: coachRoutinesData,
+        allRoutines: [...userRoutinesData, ...coachRoutinesData],
+        workoutSessions: workoutSessionsData,
+        getSessionsByDateRange,
       }}
     >
       {children}

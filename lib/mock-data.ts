@@ -66,6 +66,58 @@ export interface UserProfile {
   totalPoints: number
   memberSince: string
   payment: PaymentInfo
+  planType: "BASIC" | "PREMIUM" | "COACHING"
+  coachStatus?: "ACTIVE" | "INACTIVE" | "NONE"
+  coachId?: string
+}
+
+// ── Rutinas y Sesiones ────────────────────────────────────────
+
+export interface Routine {
+  id: string
+  name: string
+  description: string
+  source: "libre" | "entrenador"
+  trainerId?: string
+  machines: {
+    machineId: string
+    machineName: string
+    targetSets: number
+    targetReps: string
+    restSeconds: number
+    notes: string
+  }[]
+  createdAt: string
+  updatedAt: string
+}
+
+export interface WorkoutSession {
+  id: string
+  routineId?: string
+  routineName?: string
+  type: "rutina" | "libre"
+  date: string
+  duration: number
+  machineCount: number
+  setCount: number
+  totalVolume: number
+  status: "completada" | "en_progreso"
+}
+
+export interface CoachInfo {
+  id: string
+  name: string
+  avatar: string
+  email: string
+  phone: string
+  specialty: string
+  availability: { day: string; hours: string }[]
+}
+
+export interface GymSchedule {
+  day: string
+  open: string
+  close: string
 }
 
 // ── Machines ──────────────────────────────────────────────────
@@ -180,6 +232,9 @@ export const currentUser: UserProfile = {
       { date: "2025-11-10", amount: 45, status: "pagado" },
     ],
   },
+  planType: "COACHING",
+  coachStatus: "ACTIVE",
+  coachId: "trainer-1",
 }
 
 // ── Gym Admin View (demo) ─────────────────────────────────────
@@ -209,6 +264,89 @@ export const tutorials = machines.map((m) => ({
     "Pide ayuda a un instructor si tienes dudas",
   ],
 }))
+
+// ── Horario del Gym ───────────────────────────────────────────
+export const gymSchedule: GymSchedule[] = [
+  { day: "Lunes", open: "06:00", close: "22:00" },
+  { day: "Martes", open: "06:00", close: "22:00" },
+  { day: "Miercoles", open: "06:00", close: "22:00" },
+  { day: "Jueves", open: "06:00", close: "22:00" },
+  { day: "Viernes", open: "06:00", close: "22:00" },
+  { day: "Sabado", open: "07:00", close: "20:00" },
+  { day: "Domingo", open: "08:00", close: "14:00" },
+]
+
+// ── Entrenador Asignado ───────────────────────────────────────
+export const userCoach: CoachInfo = {
+  id: "trainer-1",
+  name: "Coach Maria",
+  avatar: "CM",
+  email: "trainer@minty.demo",
+  phone: "+593 99 123 4567",
+  specialty: "Fuerza e hipertrofia",
+  availability: [
+    { day: "Lunes a Viernes", hours: "08:00 - 12:00, 15:00 - 19:00" },
+    { day: "Sabado", hours: "09:00 - 13:00" },
+  ],
+}
+
+// ── Rutinas del Usuario ───────────────────────────────────────
+export const userRoutines: Routine[] = [
+  {
+    id: "routine-1",
+    name: "Tren Superior Fuerza",
+    description: "Rutina enfocada en pecho, espalda y hombros",
+    source: "libre",
+    machines: [
+      { machineId: "SMITH-01", machineName: "Smith (Multifuncional)", targetSets: 4, targetReps: "6-8", restSeconds: 120, notes: "Peso pesado" },
+      { machineId: "POLEA-01", machineName: "Polea Alta/Baja - Remo", targetSets: 3, targetReps: "10-12", restSeconds: 90, notes: "" },
+      { machineId: "APERT-01", machineName: "Aperturas y Deltoides", targetSets: 3, targetReps: "12-15", restSeconds: 60, notes: "Control en excentrica" },
+    ],
+    createdAt: "2026-01-15",
+    updatedAt: "2026-02-01",
+  },
+  {
+    id: "routine-2",
+    name: "Piernas Completo",
+    description: "Cuadriceps, femorales y gluteos",
+    source: "libre",
+    machines: [
+      { machineId: "CUADR-01", machineName: "Extension de Cuadriceps", targetSets: 4, targetReps: "10-12", restSeconds: 90, notes: "" },
+      { machineId: "FEMOR-01", machineName: "Extension de Femorales", targetSets: 4, targetReps: "10-12", restSeconds: 90, notes: "" },
+      { machineId: "ABDUC-01", machineName: "Abductor", targetSets: 3, targetReps: "15-20", restSeconds: 60, notes: "" },
+    ],
+    createdAt: "2026-01-20",
+    updatedAt: "2026-02-05",
+  },
+]
+
+// ── Rutinas del Entrenador ────────────────────────────────────
+export const coachRoutines: Routine[] = [
+  {
+    id: "routine-coach-1",
+    name: "Plan Hipertrofia - Semana A",
+    description: "Prescrito por Coach Maria - Enfoque en volumen",
+    source: "entrenador",
+    trainerId: "trainer-1",
+    machines: [
+      { machineId: "SMITH-01", machineName: "Smith (Multifuncional)", targetSets: 4, targetReps: "8-10", restSeconds: 90, notes: "RPE 7-8" },
+      { machineId: "POLEA-01", machineName: "Polea Alta/Baja - Remo", targetSets: 4, targetReps: "10-12", restSeconds: 75, notes: "" },
+      { machineId: "APERT-01", machineName: "Aperturas y Deltoides", targetSets: 3, targetReps: "12-15", restSeconds: 60, notes: "Squeeze al final" },
+      { machineId: "CUADR-01", machineName: "Extension de Cuadriceps", targetSets: 3, targetReps: "12-15", restSeconds: 60, notes: "" },
+    ],
+    createdAt: "2026-02-01",
+    updatedAt: "2026-02-10",
+  },
+]
+
+// ── Historial de Sesiones ─────────────────────────────────────
+export const workoutSessions: WorkoutSession[] = [
+  { id: "session-1", routineId: "routine-1", routineName: "Tren Superior Fuerza", type: "rutina", date: "2026-02-09", duration: 52, machineCount: 3, setCount: 10, totalVolume: 8450, status: "completada" },
+  { id: "session-2", routineId: undefined, routineName: undefined, type: "libre", date: "2026-02-08", duration: 35, machineCount: 2, setCount: 6, totalVolume: 4200, status: "completada" },
+  { id: "session-3", routineId: "routine-2", routineName: "Piernas Completo", type: "rutina", date: "2026-02-06", duration: 48, machineCount: 3, setCount: 11, totalVolume: 7800, status: "completada" },
+  { id: "session-4", routineId: "routine-coach-1", routineName: "Plan Hipertrofia - Semana A", type: "rutina", date: "2026-02-04", duration: 65, machineCount: 4, setCount: 14, totalVolume: 12300, status: "completada" },
+  { id: "session-5", routineId: undefined, routineName: undefined, type: "libre", date: "2026-02-02", duration: 28, machineCount: 2, setCount: 5, totalVolume: 3100, status: "completada" },
+]
 
 // ── Helper ────────────────────────────────────────────────────
 export function getMachineById(id: string) {

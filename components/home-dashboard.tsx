@@ -12,6 +12,7 @@ import {
   ArrowRight,
   TrendingUp,
   Zap,
+  Clock,
 } from "lucide-react"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
@@ -24,6 +25,7 @@ import {
   challenges,
   promos,
   achievements,
+  gymSchedule,
 } from "@/lib/mock-data"
 import { formatNumber, formatDateLong } from "@/lib/utils"
 import { ScanCtaBanner } from "@/components/scan-cta-banner"
@@ -40,6 +42,26 @@ export function HomeDashboard() {
   const unlockedAchievements = achievements.filter((a) => a.unlocked)
   const activeChallenge = challenges[0]
   const activePromo = promos[0]
+
+  // Gym schedule logic
+  const today = new Date().toLocaleDateString("es-ES", { weekday: "long" })
+  const todaySchedule = gymSchedule.find(
+    (s) => s.day.toLowerCase() === today.toLowerCase()
+  )
+  const now = new Date()
+  const currentMinutes = now.getHours() * 60 + now.getMinutes()
+  let isOpen = false
+  let closesInHours = 0
+  let opensAt = ""
+  if (todaySchedule) {
+    const [openH, openM] = todaySchedule.open.split(":").map(Number)
+    const [closeH, closeM] = todaySchedule.close.split(":").map(Number)
+    const openMinutes = openH * 60 + openM
+    const closeMinutes = closeH * 60 + closeM
+    isOpen = currentMinutes >= openMinutes && currentMinutes < closeMinutes
+    closesInHours = Math.floor((closeMinutes - currentMinutes) / 60)
+    opensAt = todaySchedule.open
+  }
 
   const paymentStatusColors = {
     al_dia: "bg-success/10 text-success",
@@ -66,6 +88,27 @@ export function HomeDashboard() {
           Listo para entrenar hoy. Tu racha actual es de {currentUser.scanStreak} dias.
         </p>
       </div>
+
+      {/* Gym Schedule Strip */}
+      {todaySchedule && (
+        <div className="flex items-center gap-2 mb-4 px-3 py-2 rounded-lg bg-muted/50 border border-border">
+          <Clock className="w-4 h-4 text-muted-foreground shrink-0" />
+          <div className="flex-1 min-w-0">
+            {isOpen ? (
+              <p className="text-sm text-foreground">
+                <span className="font-medium text-success">Abierto</span>
+                {" · "}Hoy {todaySchedule.open}–{todaySchedule.close}
+                {" · "}<span className="text-muted-foreground">Cierra en {closesInHours}h</span>
+              </p>
+            ) : (
+              <p className="text-sm text-foreground">
+                <span className="font-medium text-destructive">Cerrado</span>
+                {" · "}<span className="text-muted-foreground">Abre a las {opensAt}</span>
+              </p>
+            )}
+          </div>
+        </div>
+      )}
 
       {/* Scan CTA Banner */}
       <Link href="/dashboard/scan">
@@ -232,7 +275,7 @@ export function HomeDashboard() {
           <h3 className="text-sm font-semibold text-muted-foreground uppercase tracking-wider">
             Maquinas recientes
           </h3>
-          <Link href="/dashboard/scan" className="text-xs text-primary font-medium hover:underline">
+          <Link href="/dashboard/machines" className="text-xs text-primary font-medium hover:underline">
             Ver todas
           </Link>
         </div>
@@ -240,7 +283,7 @@ export function HomeDashboard() {
           {machines.slice(0, 3).map((machine) => {
             const lastSet = setHistory.find((s) => s.machineId === machine.id)
             return (
-              <Link key={machine.id} href={`/dashboard/machine/${machine.id}`}>
+              <Link key={machine.id} href={`/dashboard/machines/${machine.id}`}>
                 <Card className="group cursor-pointer border border-border hover:border-primary/40 hover:shadow-md transition-all duration-200 hover:-translate-y-0.5">
                   <CardContent className="py-4">
                     <div className="flex items-center gap-3">

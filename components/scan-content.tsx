@@ -29,7 +29,7 @@ export function ScanContent() {
         </h3>
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
           {machines.map((machine) => (
-            <Link key={machine.id} href={`/dashboard/machine/${machine.id}`}>
+            <Link key={machine.id} href={`/dashboard/machines/${machine.id}`}>
               <Card className="group cursor-pointer border border-border hover:border-primary/40 hover:shadow-md transition-all duration-200 hover:-translate-y-0.5">
                 <CardHeader className="pb-2">
                   <div className="flex items-center justify-between">

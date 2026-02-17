@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useCallback, useMemo } from "react"
 import Link from "next/link"
+import { useSearchParams } from "next/navigation"
 import {
   ArrowLeft,
   RotateCcw,
@@ -38,6 +39,11 @@ interface MachinePanelProps {
 }
 
 export function MachinePanel({ machineId }: MachinePanelProps) {
+  const searchParams = useSearchParams()
+  const mode = searchParams.get("mode") || "free"
+  const routineId = searchParams.get("routineId")
+  const step = searchParams.get("step")
+
   const machine = getMachineById(machineId)
   const {
     sessions,
@@ -287,9 +293,18 @@ export function MachinePanel({ machineId }: MachinePanelProps) {
             <Badge variant="outline" className="font-mono text-xs">
               {machine.id}
             </Badge>
+            {mode === "plan" && step ? (
+              <Badge className="bg-primary/10 text-primary border-0 text-xs">
+                Ejercicio {step}
+              </Badge>
+            ) : (
+              <Badge className="bg-muted text-muted-foreground border-0 text-xs">
+                Sesión libre
+              </Badge>
+            )}
           </div>
           <p className="text-sm text-muted-foreground">
-            {machine.muscles.join(" / ")}
+            {mode === "plan" ? "Rutina en curso" : machine.muscles.join(" / ")}
           </p>
         </div>
       </div>
@@ -622,11 +637,23 @@ export function MachinePanel({ machineId }: MachinePanelProps) {
 
       {/* Finish session */}
       {sessionSets.length > 0 && (
-        <div className="mt-6">
+        <div className="mt-6 flex flex-col gap-2">
           <Button onClick={finishSession} size="lg" className="w-full text-base">
             <Dumbbell className="w-5 h-5 mr-2" />
             Finalizar sesion ({sessionSets.length} sets)
           </Button>
+          {mode === "plan" && (
+            <>
+              <Button variant="outline" size="lg" className="w-full bg-transparent">
+                Siguiente máquina →
+              </Button>
+              <Link href="/dashboard/routines" className="w-full">
+                <Button variant="ghost" className="w-full text-muted-foreground">
+                  ← Volver a Mi Rutina
+                </Button>
+              </Link>
+            </>
+          )}
         </div>
       )}
 

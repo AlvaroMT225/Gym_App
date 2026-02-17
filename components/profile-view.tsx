@@ -22,6 +22,9 @@ import {
   AlertTriangle,
   Eye,
   EyeOff,
+  Phone,
+  GraduationCap,
+  Clock,
 } from "lucide-react"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
@@ -53,6 +56,7 @@ import {
 import { useStore } from "@/lib/store"
 import { useAuth } from "@/lib/auth/auth-context"
 import { formatDateLong, formatNumber } from "@/lib/utils"
+import { userCoach } from "@/lib/mock-data"
 
 const ALL_SCOPES = [
   { id: "sessions:read", label: "Sesiones" },
@@ -420,6 +424,45 @@ export function ProfileView() {
           </div>
         </CardContent>
       </Card>
+
+      {/* Mi entrenador — solo si planType=COACHING y coachStatus=ACTIVE */}
+      {user.planType === "COACHING" && user.coachStatus === "ACTIVE" && userCoach && (
+        <Card className="border border-primary/20 bg-primary/5">
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm font-semibold flex items-center gap-2">
+              <GraduationCap className="w-4 h-4 text-primary" />
+              Mi entrenador
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="flex flex-col gap-3">
+            <div className="flex items-center gap-3">
+              <div className="flex items-center justify-center w-10 h-10 rounded-full bg-primary text-primary-foreground text-xs font-bold">
+                {userCoach.avatar}
+              </div>
+              <div>
+                <p className="text-sm font-semibold text-foreground">{userCoach.name}</p>
+                <p className="text-xs text-muted-foreground">{userCoach.specialty}</p>
+              </div>
+            </div>
+            <div className="flex items-center gap-2 text-xs text-muted-foreground">
+              <Phone className="w-3.5 h-3.5" /> {userCoach.phone}
+            </div>
+            <div className="flex items-center gap-2 text-xs text-muted-foreground">
+              <Mail className="w-3.5 h-3.5" /> {userCoach.email}
+            </div>
+            <div className="mt-1">
+              <p className="text-xs font-medium text-foreground mb-1 flex items-center gap-1">
+                <Clock className="w-3.5 h-3.5" /> Disponibilidad
+              </p>
+              {userCoach.availability.map((slot, i) => (
+                <p key={i} className="text-xs text-muted-foreground ml-5">
+                  {slot.day}: {slot.hours}
+                </p>
+              ))}
+            </div>
+          </CardContent>
+        </Card>
+      )}
 
       {/* Stats */}
       <div className="grid grid-cols-3 gap-3">
