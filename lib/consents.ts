@@ -51,35 +51,14 @@ export interface Consent {
 }
 
 const consentStore: Consent[] = [
-  {
-    id: "consent-1",
-    client_id: "demo-user",
-    trainer_id: "demo-trainer",
-    status: "ACTIVE",
-    scopes: [
-      "sessions:read",
-      "sessions:comment",
-      "sessions:write",
-      "routines:read",
-      "routines:write",
-      "exercises:read",
-      "progress:read",
-      "prs:read",
-      "achievements:read",
-    ],
-    expires_at: "2026-03-15T23:59:59",
-    revoked_at: null,
-    created_at: "2026-02-01T10:00:00",
-    updated_at: "2026-02-01T10:00:00",
-    hidden_by_client: false,
-  },
+  // demo-user (Alex Trainer) starts with no active consents — user selects trainer manually
   {
     id: "consent-2",
     client_id: "client-ana",
-    trainer_id: "demo-trainer",
+    trainer_id: "trainer-1",
     status: "ACTIVE",
     scopes: ["sessions:read", "progress:read"],
-    expires_at: "2026-01-20T23:59:59",
+    expires_at: "2026-04-20T23:59:59",
     revoked_at: null,
     created_at: "2026-01-05T12:00:00",
     updated_at: "2026-01-05T12:00:00",
@@ -88,7 +67,7 @@ const consentStore: Consent[] = [
   {
     id: "consent-3",
     client_id: "client-luis",
-    trainer_id: "demo-trainer",
+    trainer_id: "trainer-1",
     status: "REVOKED",
     scopes: ["sessions:read", "routines:read", "progress:read"],
     expires_at: "2026-02-28T23:59:59",

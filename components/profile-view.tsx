@@ -189,7 +189,7 @@ export function ProfileView() {
       setSelectedScopes([])
       setSelectedDuration("30")
       setCustomDate(undefined)
-      loadConsents()
+      await loadConsents()
     } catch {
       setConsentError("Error de conexion")
     }
@@ -218,7 +218,7 @@ export function ProfileView() {
         return
       }
       setEditConsentOpen(false)
-      loadConsents()
+      await loadConsents()
     } catch {
       setConsentError("Error de conexion")
     }
@@ -227,7 +227,7 @@ export function ProfileView() {
   const handleRevokeConsent = async (consentId: string) => {
     try {
       await fetch(`/api/consents/${consentId}/revoke`, { method: "POST" })
-      loadConsents()
+      await loadConsents()
     } catch {
       // ignore
     }
@@ -242,7 +242,7 @@ export function ProfileView() {
         body: JSON.stringify({ expiresAt: newExpiry }),
       })
       if (res.ok) {
-        loadConsents()
+        await loadConsents()
       }
     } catch {
       // ignore
@@ -252,7 +252,7 @@ export function ProfileView() {
   const handleHideConsent = async (consentId: string) => {
     try {
       await fetch(`/api/consents/${consentId}/hide`, { method: "POST" })
-      loadConsents()
+      await loadConsents()
     } catch {
       // ignore
     }
@@ -261,7 +261,7 @@ export function ProfileView() {
   const handleRestoreConsent = async (consentId: string) => {
     try {
       await fetch(`/api/consents/${consentId}/restore`, { method: "POST" })
-      loadConsents()
+      await loadConsents()
     } catch {
       // ignore
     }
