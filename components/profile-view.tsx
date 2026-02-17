@@ -289,6 +289,17 @@ export function ProfileView() {
 
   const availableTrainers = trainers.filter((t) => !trainerHasActiveConsent(t.id))
 
+  // Link "Mi entrenador" visibility to active consent state
+  const hasActiveConsent = consents.some(
+    (c) => c.status === "ACTIVE" && !c.hidden_by_client
+  )
+  // Show block while loading (optimistic) OR when there's a confirmed active consent
+  const showCoachBlock =
+    !!userCoach &&
+    user.planType === "COACHING" &&
+    user.coachStatus === "ACTIVE" &&
+    (consentLoading || hasActiveConsent)
+
   const handleOpenEdit = () => {
     setEditName(user.name)
     setEditEmail(user.email)
@@ -425,8 +436,8 @@ export function ProfileView() {
         </CardContent>
       </Card>
 
-      {/* Mi entrenador — solo si planType=COACHING y coachStatus=ACTIVE */}
-      {user.planType === "COACHING" && user.coachStatus === "ACTIVE" && userCoach && (
+      {/* Mi entrenador — visible solo si hay un consent ACTIVE con un entrenador */}
+      {showCoachBlock && (
         <Card className="border border-primary/20 bg-primary/5">
           <CardHeader className="pb-2">
             <CardTitle className="text-sm font-semibold flex items-center gap-2">
