@@ -86,6 +86,7 @@ interface ConsentEntry {
   scopes: string[]
   expires_at: string | null
   created_at: string
+  revoked_at?: string | null
   trainer: { id: string; name: string; avatar: string } | null
   hidden_by_client?: boolean
 }
@@ -179,17 +180,36 @@ export function ProfileView() {
           expiresAt,
         }),
       })
+      const data = await res.json()
       if (!res.ok) {
-        const data = await res.json()
         setConsentError(data.error || "Error al crear consentimiento")
         return
       }
+      const created = data.consent
+      // Build trainerInfo from coachDirectory (static import, always available)
+      // then fall back to trainers state in case a future trainer is not in the directory
+      const directoryEntry = coachDirectory.find((c) => c.id === created.trainer_id)
+      const trainerInfo =
+        directoryEntry
+          ? { id: directoryEntry.id, name: directoryEntry.name, avatar: directoryEntry.avatar }
+          : (trainers.find((t) => t.id === created.trainer_id) ?? null)
+      setConsents((prev) => [
+        {
+          id: created.id,
+          status: created.status,
+          scopes: created.scopes,
+          expires_at: created.expires_at,
+          created_at: created.created_at,
+          trainer: trainerInfo,
+          hidden_by_client: created.hidden_by_client ?? false,
+        },
+        ...prev,
+      ])
       setNewConsentOpen(false)
       setSelectedTrainer("")
       setSelectedScopes([])
       setSelectedDuration("30")
       setCustomDate(undefined)
-      await loadConsents()
     } catch {
       setConsentError("Error de conexion")
     }
@@ -212,13 +232,19 @@ export function ProfileView() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ scopes: selectedScopes, expiresAt }),
       })
+      const data = await res.json()
       if (!res.ok) {
-        const data = await res.json()
         setConsentError(data.error || "Error al actualizar")
         return
       }
+      setConsents((prev) =>
+        prev.map((c) =>
+          c.id === editConsentId
+            ? { ...c, scopes: selectedScopes, expires_at: expiresAt }
+            : c
+        )
+      )
       setEditConsentOpen(false)
-      await loadConsents()
     } catch {
       setConsentError("Error de conexion")
     }
@@ -226,8 +252,12 @@ export function ProfileView() {
 
   const handleRevokeConsent = async (consentId: string) => {
     try {
-      await fetch(`/api/consents/${consentId}/revoke`, { method: "POST" })
-      await loadConsents()
+      const res = await fetch(`/api/consents/${consentId}/revoke`, { method: "POST" })
+      if (res.ok) {
+        setConsents((prev) =>
+          prev.map((c) => (c.id === consentId ? { ...c, status: "REVOKED" } : c))
+        )
+      }
     } catch {
       // ignore
     }
@@ -242,7 +272,9 @@ export function ProfileView() {
         body: JSON.stringify({ expiresAt: newExpiry }),
       })
       if (res.ok) {
-        await loadConsents()
+        setConsents((prev) =>
+          prev.map((c) => (c.id === consentId ? { ...c, expires_at: newExpiry } : c))
+        )
       }
     } catch {
       // ignore
@@ -251,8 +283,12 @@ export function ProfileView() {
 
   const handleHideConsent = async (consentId: string) => {
     try {
-      await fetch(`/api/consents/${consentId}/hide`, { method: "POST" })
-      await loadConsents()
+      const res = await fetch(`/api/consents/${consentId}/hide`, { method: "POST" })
+      if (res.ok) {
+        setConsents((prev) =>
+          prev.map((c) => (c.id === consentId ? { ...c, hidden_by_client: true } : c))
+        )
+      }
     } catch {
       // ignore
     }
@@ -260,8 +296,12 @@ export function ProfileView() {
 
   const handleRestoreConsent = async (consentId: string) => {
     try {
-      await fetch(`/api/consents/${consentId}/restore`, { method: "POST" })
-      await loadConsents()
+      const res = await fetch(`/api/consents/${consentId}/restore`, { method: "POST" })
+      if (res.ok) {
+        setConsents((prev) =>
+          prev.map((c) => (c.id === consentId ? { ...c, hidden_by_client: false } : c))
+        )
+      }
     } catch {
       // ignore
     }
