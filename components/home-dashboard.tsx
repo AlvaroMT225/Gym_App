@@ -44,23 +44,42 @@ export function HomeDashboard() {
   const activePromo = promos[0]
 
   // Gym schedule logic
-  const today = new Date().toLocaleDateString("es-ES", { weekday: "long" })
-  const todaySchedule = gymSchedule.find(
-    (s) => s.day.toLowerCase() === today.toLowerCase()
-  )
+  // Strip accents so "Miercoles" matches "miércoles" from toLocaleDateString
+  const stripAccents = (s: string) =>
+    s.normalize("NFD").replace(/[\u0300-\u036f]/g, "")
+
   const now = new Date()
+  const todayName = stripAccents(
+    now.toLocaleDateString("es-ES", { weekday: "long" })
+  )
+  const todaySchedule = gymSchedule.find(
+    (s) => stripAccents(s.day).toLowerCase() === todayName.toLowerCase()
+  )
   const currentMinutes = now.getHours() * 60 + now.getMinutes()
   let isOpen = false
-  let closesInHours = 0
+  let minutesUntilClose = 0
+  let minutesUntilOpen = 0
   let opensAt = ""
+  let closesAt = ""
   if (todaySchedule) {
     const [openH, openM] = todaySchedule.open.split(":").map(Number)
     const [closeH, closeM] = todaySchedule.close.split(":").map(Number)
     const openMinutes = openH * 60 + openM
     const closeMinutes = closeH * 60 + closeM
     isOpen = currentMinutes >= openMinutes && currentMinutes < closeMinutes
-    closesInHours = Math.floor((closeMinutes - currentMinutes) / 60)
+    minutesUntilClose = closeMinutes - currentMinutes
+    minutesUntilOpen = openMinutes - currentMinutes
     opensAt = todaySchedule.open
+    closesAt = todaySchedule.close
+  }
+
+  const formatCountdown = (mins: number) => {
+    if (mins <= 0) return null
+    const h = Math.floor(mins / 60)
+    const m = mins % 60
+    if (h === 0) return `${m}min`
+    if (m === 0) return `${h}h`
+    return `${h}h ${m}min`
   }
 
   const paymentStatusColors = {
@@ -91,19 +110,29 @@ export function HomeDashboard() {
 
       {/* Gym Schedule Strip */}
       {todaySchedule && (
-        <div className="flex items-center gap-2 mb-4 px-3 py-2 rounded-lg bg-muted/50 border border-border">
+        <div className={`flex items-center gap-3 mb-4 px-4 py-3 rounded-xl border ${isOpen ? "bg-green-500/8 border-green-500/25" : "bg-muted/50 border-border"}`}>
+          {/* Status dot */}
+          <span className={`w-2.5 h-2.5 rounded-full shrink-0 ${isOpen ? "bg-green-500 shadow-[0_0_6px_2px_rgba(34,197,94,0.4)]" : "bg-muted-foreground/50"}`} />
           <Clock className="w-4 h-4 text-muted-foreground shrink-0" />
           <div className="flex-1 min-w-0">
             {isOpen ? (
-              <p className="text-sm text-foreground">
-                <span className="font-medium text-success">Abierto</span>
-                {" · "}Hoy {todaySchedule.open}–{todaySchedule.close}
-                {" · "}<span className="text-muted-foreground">Cierra en {closesInHours}h</span>
+              <p className="text-sm text-foreground leading-snug">
+                <span className="font-semibold text-green-600 dark:text-green-400">Abierto</span>
+                <span className="text-muted-foreground"> · Hoy {opensAt}–{closesAt}</span>
+                {formatCountdown(minutesUntilClose) && (
+                  <span className="text-muted-foreground"> · Cierra en {formatCountdown(minutesUntilClose)}</span>
+                )}
+              </p>
+            ) : minutesUntilOpen > 0 ? (
+              <p className="text-sm text-foreground leading-snug">
+                <span className="font-semibold text-destructive">Cerrado</span>
+                <span className="text-muted-foreground"> · Hoy {opensAt}–{closesAt}</span>
+                <span className="text-muted-foreground"> · Abre en {formatCountdown(minutesUntilOpen)}</span>
               </p>
             ) : (
-              <p className="text-sm text-foreground">
-                <span className="font-medium text-destructive">Cerrado</span>
-                {" · "}<span className="text-muted-foreground">Abre a las {opensAt}</span>
+              <p className="text-sm text-foreground leading-snug">
+                <span className="font-semibold text-destructive">Cerrado</span>
+                <span className="text-muted-foreground"> · Hoy {opensAt}–{closesAt}</span>
               </p>
             )}
           </div>
