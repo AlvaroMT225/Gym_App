@@ -20,7 +20,7 @@ interface DashboardData {
 }
 
 const quickLinks = [
-  { label: "Clientes", href: "/trainer/clients", icon: Users },
+  { label: "Atletas", href: "/trainer/clients", icon: Users },
   { label: "Propuestas", href: "/trainer/proposals", icon: FileText },
   { label: "Calendario", href: "/trainer/calendar", icon: CalendarDays },
   { label: "Alertas", href: "/trainer/alerts", icon: ShieldAlert },
@@ -65,7 +65,7 @@ export function TrainerDashboard() {
               </div>
               <div>
                 <p className="text-2xl font-bold text-foreground">{data?.clientCount ?? 0}</p>
-                <p className="text-xs text-muted-foreground">Clientes activos</p>
+                <p className="text-xs text-muted-foreground">Atletas activos</p>
               </div>
             </div>
           </CardContent>

@@ -21,7 +21,7 @@ export interface TrainerTemplate {
 const templateStore: TrainerTemplate[] = [
   {
     id: "tpl-1",
-    trainerId: "demo-trainer",
+    trainerId: "trainer-1",
     title: "Full body principiante",
     description: "Rutina de adaptación para nuevos clientes",
     type: "routine",
@@ -35,7 +35,7 @@ const templateStore: TrainerTemplate[] = [
   },
   {
     id: "tpl-2",
-    trainerId: "demo-trainer",
+    trainerId: "trainer-1",
     title: "Sesión piernas fuerza",
     description: "Sesión enfocada en fuerza de tren inferior",
     type: "session",
@@ -49,7 +49,7 @@ const templateStore: TrainerTemplate[] = [
   },
   {
     id: "tpl-3",
-    trainerId: "demo-trainer",
+    trainerId: "trainer-1",
     title: "Upper body hipertrofia",
     description: "Rutina de tren superior con volumen moderado",
     type: "routine",

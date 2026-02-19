@@ -39,8 +39,8 @@ import { ROLE_PERMISSIONS, type Permission } from "@/lib/rbac"
 const allPermissions: { key: Permission; label: string }[] = [
   { key: "workouts:read", label: "Ver entrenamientos" },
   { key: "workouts:write", label: "Editar entrenamientos" },
-  { key: "clients:read", label: "Ver clientes" },
-  { key: "clients:assign", label: "Asignar clientes" },
+  { key: "clients:read", label: "Ver atletas" },
+  { key: "clients:assign", label: "Asignar atletas" },
   { key: "machines:manage", label: "Gestionar maquinas" },
   { key: "rankings:manage", label: "Gestionar rankings" },
   { key: "billing:manage", label: "Gestionar pagos" },

@@ -165,7 +165,7 @@ function BlockedCard({ label }: { label: string }) {
         </div>
         <p className="text-sm font-medium text-muted-foreground">Sin acceso</p>
         <p className="text-xs text-muted-foreground mt-1">
-          El cliente no compartio {label}.
+          El atleta no compartio {label}.
         </p>
       </CardContent>
     </Card>
@@ -967,7 +967,7 @@ export function TrainerClientDetail({ clientId }: { clientId: string }) {
   useEffect(() => {
     fetch(`/api/trainer/clients/${clientId}/summary`)
       .then((r) => {
-        if (!r.ok) throw new Error("No se pudo cargar el cliente")
+        if (!r.ok) throw new Error("No se pudo cargar el atleta")
         return r.json()
       })
       .then((d) => setSummary(d))
@@ -995,7 +995,7 @@ export function TrainerClientDetail({ clientId }: { clientId: string }) {
   if (loading) {
     return (
       <div className="px-4 py-6 lg:px-8 lg:py-8">
-        <p className="text-sm text-muted-foreground">Cargando ficha del cliente...</p>
+        <p className="text-sm text-muted-foreground">Cargando ficha del atleta...</p>
       </div>
     )
   }
@@ -1005,7 +1005,7 @@ export function TrainerClientDetail({ clientId }: { clientId: string }) {
       <div className="px-4 py-6 lg:px-8 lg:py-8">
         <Card className="border border-destructive/30 bg-destructive/5">
           <CardContent className="py-6 text-sm text-destructive">
-            {error || "Cliente no encontrado"}
+            {error || "Atleta no encontrado"}
           </CardContent>
         </Card>
       </div>
@@ -1022,7 +1022,7 @@ export function TrainerClientDetail({ clientId }: { clientId: string }) {
       <Button asChild variant="ghost" size="sm" className="mb-4 -ml-2 gap-1.5 text-muted-foreground">
         <Link href="/trainer/clients">
           <ArrowLeft className="w-4 h-4" />
-          Mis Clientes
+          Mis Atletas
         </Link>
       </Button>
 
@@ -1062,7 +1062,7 @@ export function TrainerClientDetail({ clientId }: { clientId: string }) {
         <Alert className="mb-6 border-destructive bg-destructive/10">
           <AlertTriangle className="h-4 w-4 text-destructive" />
           <AlertDescription className="text-destructive ml-2">
-            <strong>Acceso revocado</strong> — El cliente ha revocado o modificado su consentimiento.
+            <strong>Acceso revocado</strong> — El atleta ha revocado o modificado su consentimiento.
           </AlertDescription>
         </Alert>
       )}

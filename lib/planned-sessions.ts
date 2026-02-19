@@ -28,7 +28,7 @@ const plannedSessionsStore: PlannedSession[] = [
   {
     id: "ps-1",
     clientId: "demo-user",
-    trainerId: "demo-trainer",
+    trainerId: "trainer-1",
     title: "Sesión de piernas - fuerza",
     description: "Enfoque en sentadilla y accesorios",
     scheduledAt: "2026-02-15T10:00:00",

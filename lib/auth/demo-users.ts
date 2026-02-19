@@ -29,12 +29,12 @@ async function getDemoUsers(): Promise<AuthUser[]> {
       avatar: "AM",
     },
     {
-      id: "demo-trainer",
-      name: "Carlos Entrenador",
+      id: "trainer-1",
+      name: "Coach Maria",
       email: "trainer@minty.demo",
       passwordHash: await hashPassword("Trainer123!"),
       role: "TRAINER",
-      avatar: "CE",
+      avatar: "CM",
     },
     {
       id: "demo-user",

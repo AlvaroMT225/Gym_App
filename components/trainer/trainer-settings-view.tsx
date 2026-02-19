@@ -197,7 +197,7 @@ export function TrainerSettingsView() {
         </CardHeader>
         <CardContent className="space-y-3">
           <div>
-            <Label className="text-xs">Máximo de clientes</Label>
+            <Label className="text-xs">Máximo de atletas</Label>
             <Input
               type="number"
               value={settings.maxClients}
@@ -210,7 +210,7 @@ export function TrainerSettingsView() {
 
           <div className="space-y-2">
             <ToggleRow
-              label="Notificar nuevo cliente"
+              label="Notificar nuevo atleta"
               checked={settings.notifyNewClient}
               onChange={(v) => setSettings({ ...settings, notifyNewClient: v })}
             />

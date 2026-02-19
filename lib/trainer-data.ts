@@ -309,7 +309,7 @@ export const sessionComments: SessionComment[] = [
     id: "sc-1",
     sessionId: "ts-1",
     clientId: "demo-user",
-    trainerId: "demo-trainer",
+    trainerId: "trainer-1",
     comment: "Buen trabajo. Sube 2.5kg en la proxima semana.",
     createdAt: "2026-02-10T09:00:00",
   },

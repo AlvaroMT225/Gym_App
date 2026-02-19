@@ -159,8 +159,8 @@ export function TrainerClientsView() {
   return (
     <div className="px-4 py-6 lg:px-8 lg:py-8">
       <PageHeader
-        title="Mis Clientes"
-        description="Solo aparecen clientes con consentimiento activo y vigente."
+        title="Mis Atletas"
+        description="Solo aparecen atletas con consentimiento activo y vigente."
         icon={Users}
       />
 
@@ -170,7 +170,7 @@ export function TrainerClientsView() {
           <div className="relative">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
             <Input
-              placeholder="Buscar cliente por nombre..."
+              placeholder="Buscar atleta por nombre..."
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
               className="pl-9"
@@ -246,7 +246,7 @@ export function TrainerClientsView() {
       )}
 
       {loading ? (
-        <p className="text-sm text-muted-foreground">Cargando clientes...</p>
+        <p className="text-sm text-muted-foreground">Cargando atletas...</p>
       ) : error ? (
         <Card className="border border-destructive/30 bg-destructive/5">
           <CardContent className="py-6 text-sm text-destructive">{error}</CardContent>
@@ -254,7 +254,7 @@ export function TrainerClientsView() {
       ) : clients.length === 0 ? (
         <Card className="border border-dashed border-border bg-muted/40">
           <CardContent className="py-10 text-center text-sm text-muted-foreground">
-            Aun no tienes clientes con consentimiento activo.
+            Aun no tienes atletas con consentimiento activo.
           </CardContent>
         </Card>
       ) : filteredAndSortedClients.length === 0 ? (
@@ -285,7 +285,7 @@ export function TrainerClientsView() {
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead>Cliente</TableHead>
+                  <TableHead>Atleta</TableHead>
                   <TableHead>Estado</TableHead>
                   <TableHead>Scopes</TableHead>
                   <TableHead>Vencimiento</TableHead>
@@ -326,7 +326,7 @@ export function TrainerClientsView() {
                       <TableCell className="text-right">
                         <Button asChild size="sm" className="gap-1">
                           <Link href={`/trainer/clients/${client.id}`}>
-                            Ver cliente
+                            Ver atleta
                             <ArrowRight className="w-3.5 h-3.5" />
                           </Link>
                         </Button>

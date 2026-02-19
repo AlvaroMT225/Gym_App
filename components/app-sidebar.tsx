@@ -43,7 +43,7 @@ const clientNavItems = [
 
 const trainerNavItems = [
   { label: "Dashboard", href: "/trainer", icon: LayoutDashboard },
-  { label: "Clientes", href: "/trainer/clients", icon: Users },
+  { label: "Atletas", href: "/trainer/clients", icon: Users },
   { label: "Propuestas", href: "/trainer/proposals", icon: FileText },
   { label: "Plantillas", href: "/trainer/templates", icon: FolderOpen },
   { label: "Calendario", href: "/trainer/calendar", icon: Calendar },

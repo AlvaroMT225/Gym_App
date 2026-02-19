@@ -51,7 +51,7 @@ const clientMenuItems = [
 
 const trainerBottomTabs = [
   { label: "Dashboard", href: "/trainer", icon: LayoutDashboard },
-  { label: "Clientes", href: "/trainer/clients", icon: Users },
+  { label: "Atletas", href: "/trainer/clients", icon: Users },
   { label: "Calendario", href: "/trainer/calendar", icon: Calendar },
   { label: "Alertas", href: "/trainer/alerts", icon: AlertCircle },
   { label: "Mas", href: "#menu", icon: Menu },

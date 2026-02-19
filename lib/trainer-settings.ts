@@ -18,9 +18,9 @@ export interface TrainerSettings {
 
 const settingsStore: Map<string, TrainerSettings> = new Map([
   [
-    "demo-trainer",
+    "trainer-1",
     {
-      trainerId: "demo-trainer",
+      trainerId: "trainer-1",
       bio: "Entrenador personal certificado con 5 años de experiencia en fuerza e hipertrofia.",
       specialties: ["Fuerza", "Hipertrofia", "Rehabilitación"],
       availability: [
