@@ -49,16 +49,16 @@ const trainerNavItems = [
   { label: "Calendario", href: "/trainer/calendar", icon: Calendar },
   { label: "Ejercicios", href: "/trainer/exercises", icon: Dumbbell },
   { label: "Alertas", href: "/trainer/alerts", icon: AlertCircle },
-  { label: "Ajustes", href: "/trainer/settings", icon: Settings },
+  { label: "Perfil", href: "/trainer/settings", icon: Settings },
 ]
 
 export function AppSidebar() {
   const pathname = usePathname()
   const { notifications } = useStore()
-  const { user: authUser, logout } = useAuth()
+  const { user: authUser, signOut } = useAuth()
   const unreadPromoCount = notifications.filter((n) => n.type === "promo" && !n.read).length
 
-  const isTrainer = authUser?.role === "TRAINER"
+  const isTrainer = authUser?.role === "coach"
   const navItems = isTrainer ? trainerNavItems : clientNavItems
 
   return (
@@ -127,7 +127,7 @@ export function AppSidebar() {
             <p className="text-xs text-sidebar-foreground/50 truncate">{authUser?.email || ""}</p>
           </div>
           <button
-            onClick={logout}
+            onClick={signOut}
             className="p-1.5 rounded-lg hover:bg-sidebar-accent text-sidebar-foreground/50 hover:text-sidebar-foreground transition-colors"
             aria-label="Cerrar sesion"
           >

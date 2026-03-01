@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from "next/server"
 import { requireRoleFromRequest } from "@/lib/auth/guards"
-import { CONSENT_SCOPES, getConsentById, updateConsent } from "@/lib/consents"
+import { getConsentById, updateConsent, formatConsentForFrontend } from "@/lib/supabase/consent-queries"
+import { handleApiError, validateBody } from "@/lib/api-utils"
+import { consentUpdateBodySchema } from "@/lib/validations/athlete"
 
 export async function PATCH(
   request: NextRequest,
@@ -9,37 +11,20 @@ export async function PATCH(
   const { id } = await params
   const sessionOrResponse = await requireRoleFromRequest(request, ["USER"])
   if (sessionOrResponse instanceof NextResponse) return sessionOrResponse
-
-  const consent = getConsentById(id)
-  if (!consent || consent.client_id !== sessionOrResponse.userId) {
-    return NextResponse.json({ error: "Consentimiento no encontrado" }, { status: 404 })
-  }
-  if (consent.status !== "ACTIVE") {
-    return NextResponse.json({ error: "Consentimiento no activo" }, { status: 403 })
-  }
-
   try {
-    const body = await request.json()
-    const scopes = Array.isArray(body.scopes)
-      ? body.scopes.filter((s: string) => CONSENT_SCOPES.includes(s))
-      : undefined
-    const expiresAt =
-      body.expiresAt === null || body.expiresAt === undefined ? undefined : String(body.expiresAt)
+    const consent = await getConsentById(id)
+    if (!consent || consent.athlete_id !== sessionOrResponse.userId) {
+      return NextResponse.json({ error: "No encontrado" }, { status: 404 })
+    }
+    if (consent.status !== "active") {
+      return NextResponse.json({ error: "Solo se puede editar un consentimiento activo" }, { status: 403 })
+    }
 
-    const updated = updateConsent({
-      id: consent.id,
-      scopes,
-      expiresAt,
-      actorId: sessionOrResponse.userId,
-      actorRole: sessionOrResponse.role,
-    })
+    const { scopes, expiresAt } = await validateBody(request, consentUpdateBodySchema)
 
-    return NextResponse.json({ consent: updated })
+    const row = await updateConsent({ id, mockScopes: scopes, expiresAt: expiresAt === undefined ? undefined : (expiresAt ?? null) })
+    return NextResponse.json({ consent: formatConsentForFrontend(row) })
   } catch (error) {
-    return NextResponse.json(
-      { error: error instanceof Error ? error.message : "Error al actualizar" },
-      { status: 400 }
-    )
+    return handleApiError(error)
   }
 }
-

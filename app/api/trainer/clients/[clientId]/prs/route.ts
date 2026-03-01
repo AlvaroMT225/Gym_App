@@ -1,7 +1,24 @@
 import { NextRequest, NextResponse } from "next/server"
 import { requireRoleFromRequest } from "@/lib/auth/guards"
 import { requireActiveConsent, requireConsentScope } from "@/lib/consent-guards"
-import { getExerciseById, listSessionsForClient } from "@/lib/trainer-data"
+import { createClient } from "@/lib/supabase/server"
+
+interface ExerciseRow {
+  id: string
+  name: string
+}
+
+interface PRRow {
+  exercise_id: string
+  value: number
+  achieved_at: string
+  exercise: ExerciseRow | ExerciseRow[] | null
+}
+
+function normalizeExercise(ex: PRRow["exercise"]): ExerciseRow | null {
+  if (!ex) return null
+  return Array.isArray(ex) ? (ex[0] ?? null) : ex
+}
 
 export async function GET(
   request: NextRequest,
@@ -11,39 +28,58 @@ export async function GET(
   const sessionOrResponse = await requireRoleFromRequest(request, ["TRAINER", "ADMIN"])
   if (sessionOrResponse instanceof NextResponse) return sessionOrResponse
 
-  const consentResult = requireActiveConsent({
-    trainerId: sessionOrResponse.userId,
-    clientId,
-  })
-  if ("error" in consentResult) return consentResult.error
+  const coachId = sessionOrResponse.userId
 
-  const scopeResult = requireConsentScope(consentResult.consent, "prs:read")
-  if ("error" in scopeResult) return scopeResult.error
+  try {
+    const supabase = await createClient()
 
-  const sessions = listSessionsForClient(clientId)
-  const prMap = new Map<string, { bestWeight: number; date: string }>()
+    const consentResult = await requireActiveConsent(supabase, coachId, clientId)
+    if ("error" in consentResult) return consentResult.error
 
-  sessions.forEach((session) => {
-    const bestSet = session.sets.reduce(
-      (best, set) => (set.weight > best.weight ? set : best),
-      session.sets[0]
-    )
-    const current = prMap.get(session.exerciseId)
-    if (!current || bestSet.weight > current.bestWeight) {
-      prMap.set(session.exerciseId, { bestWeight: bestSet.weight, date: session.date })
+    const scopeResult = requireConsentScope(consentResult.consent, "view_personal_records")
+    if ("error" in scopeResult) return scopeResult.error
+
+    const { data, error } = await supabase
+      .from("personal_records")
+      .select("exercise_id, value, achieved_at, exercise:exercises(id, name)")
+      .eq("profile_id", clientId)
+      .eq("record_type", "1rm")
+      .order("value", { ascending: false })
+
+    if (error) {
+      console.error("GET /api/trainer/clients/[clientId]/prs query error:", error)
+      return NextResponse.json({ error: "Error al obtener records personales" }, { status: 500 })
     }
-  })
 
-  const prs = Array.from(prMap.entries()).map(([exerciseId, data]) => {
-    const exercise = getExerciseById(exerciseId)
-    return {
+    // Keep only the best value per exercise (the trigger only inserts on new PRs, so
+    // the highest value row is the current record — dedup here for safety)
+    const bestByExercise = new Map<
+      string,
+      { value: number; achievedAt: string; exerciseName: string }
+    >()
+
+    for (const row of (data ?? []) as PRRow[]) {
+      const existing = bestByExercise.get(row.exercise_id)
+      if (!existing || row.value > existing.value) {
+        const exercise = normalizeExercise(row.exercise)
+        bestByExercise.set(row.exercise_id, {
+          value: row.value,
+          achievedAt: row.achieved_at,
+          exerciseName: exercise?.name ?? row.exercise_id,
+        })
+      }
+    }
+
+    const prs = Array.from(bestByExercise.entries()).map(([exerciseId, pr]) => ({
       exerciseId,
-      exerciseName: exercise?.name ?? exerciseId,
-      bestWeight: data.bestWeight,
-      date: data.date,
-    }
-  })
+      exerciseName: pr.exerciseName,
+      bestWeight: pr.value,
+      date: pr.achievedAt,
+    }))
 
-  return NextResponse.json({ prs })
+    return NextResponse.json({ prs })
+  } catch (err) {
+    console.error("GET /api/trainer/clients/[clientId]/prs unexpected error:", err)
+    return NextResponse.json({ error: "Error interno del servidor" }, { status: 500 })
+  }
 }
-

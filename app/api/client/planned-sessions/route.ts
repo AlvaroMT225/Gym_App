@@ -23,7 +23,7 @@ export async function GET(request: NextRequest) {
   // Enrich with exercise names
   const enriched = allSessions.map((ps) => ({
     ...ps,
-    items: ps.items.map((item) => {
+    items: ps.items.map((item: any) => {
       const ex = exerciseCatalog.find((e) => e.id === item.exerciseId)
       return {
         ...item,

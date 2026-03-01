@@ -17,6 +17,7 @@ import {
   Dumbbell,
   AlertTriangle,
   BookOpen,
+  Loader2,
 } from "lucide-react"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
@@ -30,12 +31,38 @@ import {
   DialogDescription,
   DialogFooter,
 } from "@/components/ui/dialog"
-import { getMachineById } from "@/lib/mock-data"
 import { useStore } from "@/lib/store"
-import { formatDateShort } from "@/lib/utils"
+import { formatDateShort, translateMuscleGroups } from "@/lib/utils"
 
 interface MachinePanelProps {
   machineId: string
+}
+
+interface MachineDetail {
+  id: string
+  gym_id: string
+  name: string
+  description: string | null
+  muscle_groups: string[] | null
+  equipment_type: string
+  status: string
+  location: string | null
+  image_url: string | null
+  instructions: string | null
+  settings: Record<string, unknown> | null
+}
+
+interface MachineTutorialDetail {
+  tutorialId: string
+  title: string
+  steps: string[]
+  safetyTips: string[]
+  commonErrors: string[]
+  videoUrl: string | null
+}
+
+interface TutorialDetailResponse {
+  item?: MachineTutorialDetail
 }
 
 export function MachinePanel({ machineId }: MachinePanelProps) {
@@ -44,14 +71,51 @@ export function MachinePanel({ machineId }: MachinePanelProps) {
   const routineId = searchParams.get("routineId")
   const step = searchParams.get("step")
 
-  const machine = getMachineById(machineId)
+  const [machine, setMachine] = useState<MachineDetail | null>(null)
+  const [loadingMachine, setLoadingMachine] = useState(true)
+  const [machineError, setMachineError] = useState<string | null>(null)
   const {
     sessions,
-    addSession,
     tutorialsSeen,
     markTutorialSeen,
     challenges,
   } = useStore()
+
+  useEffect(() => {
+    const controller = new AbortController()
+
+    const loadMachine = async () => {
+      setLoadingMachine(true)
+      setMachineError(null)
+
+      try {
+        const response = await fetch(`/api/machines/${machineId}`, {
+          method: "GET",
+          cache: "no-store",
+          signal: controller.signal,
+        })
+
+        if (!response.ok) {
+          throw new Error("machine_fetch_failed")
+        }
+
+        const data = (await response.json()) as { machine: MachineDetail | null }
+        setMachine(data.machine ?? null)
+      } catch {
+        if (controller.signal.aborted) return
+        setMachine(null)
+        setMachineError("No fue posible cargar la maquina")
+      } finally {
+        if (!controller.signal.aborted) {
+          setLoadingMachine(false)
+        }
+      }
+    }
+
+    void loadMachine()
+
+    return () => controller.abort()
+  }, [machineId])
 
   // Get history for this machine from the store
   const history = useMemo(() => {
@@ -93,16 +157,82 @@ export function MachinePanel({ machineId }: MachinePanelProps) {
 
   // Tutorial state from store
   const isTutorialSeen = tutorialsSeen[machineId] || false
+  const [tutorial, setTutorial] = useState<MachineTutorialDetail | null>(null)
+  const [loadingTutorial, setLoadingTutorial] = useState(false)
+  const [tutorialNotice, setTutorialNotice] = useState<string | null>(null)
+  const [markingTutorial, setMarkingTutorial] = useState(false)
   const [showTutorial, setShowTutorial] = useState(false)
+  const shouldBlockByTutorial = !isTutorialSeen && (loadingTutorial || Boolean(tutorial))
 
   useEffect(() => {
-    if (machine && !isTutorialSeen) {
-      setShowTutorial(true)
-    }
-  }, [machine, isTutorialSeen])
+    const controller = new AbortController()
 
-  const handleTutorialDone = () => {
-    markTutorialSeen(machineId)
+    if (!machine) {
+      return () => controller.abort()
+    }
+
+    if (isTutorialSeen) {
+      setTutorial(null)
+      setTutorialNotice(null)
+      setShowTutorial(false)
+      setLoadingTutorial(false)
+      return () => controller.abort()
+    }
+
+    const loadTutorial = async () => {
+      setLoadingTutorial(true)
+      setTutorialNotice(null)
+
+      try {
+        const response = await fetch(`/api/client/tutorials/${encodeURIComponent(machineId)}`, {
+          method: "GET",
+          cache: "no-store",
+          signal: controller.signal,
+        })
+
+        if (response.status === 404) {
+          setTutorial(null)
+          setShowTutorial(false)
+          setTutorialNotice("Tutorial no disponible aún")
+          return
+        }
+
+        if (!response.ok) {
+          throw new Error("tutorial_fetch_failed")
+        }
+
+        const payload = (await response.json()) as TutorialDetailResponse
+        if (!payload.item?.tutorialId) {
+          setTutorial(null)
+          setShowTutorial(false)
+          setTutorialNotice("Tutorial no disponible aún")
+          return
+        }
+
+        setTutorial(payload.item)
+        setShowTutorial(true)
+      } catch {
+        if (controller.signal.aborted) return
+        setTutorial(null)
+        setShowTutorial(false)
+        setTutorialNotice("Tutorial no disponible aún")
+      } finally {
+        if (!controller.signal.aborted) {
+          setLoadingTutorial(false)
+        }
+      }
+    }
+
+    void loadTutorial()
+
+    return () => controller.abort()
+  }, [machine, machineId, isTutorialSeen])
+
+  const handleTutorialDone = async () => {
+    if (!tutorial?.tutorialId) return
+    setMarkingTutorial(true)
+    await markTutorialSeen(machineId, tutorial.tutorialId)
+    setMarkingTutorial(false)
     setShowTutorial(false)
   }
 
@@ -116,6 +246,8 @@ export function MachinePanel({ machineId }: MachinePanelProps) {
     { weight: number; reps: number; rpe: number }[]
   >([])
   const [sessionDone, setSessionDone] = useState(false)
+  const [finishing, setFinishing] = useState(false)
+  const [finishError, setFinishError] = useState<string | null>(null)
 
   // Form state for new set
   const [weight, setWeight] = useState(lastSet?.weight || 20)
@@ -174,21 +306,62 @@ export function MachinePanel({ machineId }: MachinePanelProps) {
     startTimer(90)
   }
 
-  const finishSession = () => {
+  const finishSession = async () => {
     if (sessionSets.length === 0) return
-    addSession({
-      date: new Date().toISOString(),
-      machineId,
-      sets: sessionSets,
-      source: "qr",
-    })
-    setSessionDone(true)
+    setFinishing(true)
+    setFinishError(null)
+    try {
+      const res = await fetch("/api/client/workout-sessions", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          machineId,
+          sets: sessionSets.map((s) => ({ weight: s.weight, reps: s.reps, rpe: s.rpe })),
+          source: "qr",
+        }),
+      })
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}))
+        setFinishError(data.error ?? "Error al guardar sesión. Intenta de nuevo.")
+        return
+      }
+      setSessionDone(true)
+    } catch {
+      setFinishError("Error de conexión. Intenta de nuevo.")
+    } finally {
+      setFinishing(false)
+    }
   }
 
   const formatTime = (s: number) => {
     const m = Math.floor(s / 60)
     const sec = s % 60
     return `${m}:${sec.toString().padStart(2, "0")}`
+  }
+
+  if (loadingMachine) {
+    return (
+      <div className="px-4 py-6 lg:px-8 lg:py-8">
+        <div className="flex flex-col items-center justify-center py-20 text-center">
+          <p className="text-sm text-muted-foreground">Cargando maquina...</p>
+        </div>
+      </div>
+    )
+  }
+
+  if (machineError) {
+    return (
+      <div className="px-4 py-6 lg:px-8 lg:py-8">
+        <div className="flex flex-col items-center justify-center py-20 text-center">
+          <AlertTriangle className="w-12 h-12 text-destructive mb-4" />
+          <h2 className="text-xl font-bold text-foreground mb-2">Error al cargar</h2>
+          <p className="text-sm text-muted-foreground mb-6">{machineError}</p>
+          <Link href="/dashboard/machines">
+            <Button>Volver al catalogo</Button>
+          </Link>
+        </div>
+      </div>
+    )
   }
 
   if (!machine) {
@@ -210,6 +383,8 @@ export function MachinePanel({ machineId }: MachinePanelProps) {
     )
   }
 
+  const machineMuscles = translateMuscleGroups(machine.muscle_groups ?? [])
+
   return (
     <div className="px-4 py-6 lg:px-8 lg:py-8">
       {/* Tutorial modal (first time) — BLOCKS registration */}
@@ -217,7 +392,7 @@ export function MachinePanel({ machineId }: MachinePanelProps) {
         open={showTutorial}
         onOpenChange={(open) => {
           // Prevent closing without accepting
-          if (!open && !isTutorialSeen) return
+          if (!open && shouldBlockByTutorial) return
           setShowTutorial(open)
         }}
       >
@@ -225,7 +400,7 @@ export function MachinePanel({ machineId }: MachinePanelProps) {
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               <BookOpen className="w-5 h-5 text-primary" />
-              Tutorial: {machine.name}
+              Tutorial: {tutorial?.title ?? machine.name}
             </DialogTitle>
             <DialogDescription>
               Es tu primera vez en esta maquina. Revisa la guia antes de
@@ -238,15 +413,9 @@ export function MachinePanel({ machineId }: MachinePanelProps) {
                 Pasos de uso:
               </h4>
               <ol className="flex flex-col gap-1.5">
-                {[
-                  "Ajusta el asiento a tu altura",
-                  "Selecciona el peso adecuado",
-                  "Manten la espalda recta",
-                  "Movimiento completo y controlado",
-                  "Exhala en fase concentrica",
-                ].map((step, i) => (
+                {(tutorial?.steps.length ? tutorial.steps : ["Sin pasos registrados"]).map((step, i) => (
                   <li
-                    key={`step-${step}`}
+                    key={`step-${i}`}
                     className="flex items-start gap-2 text-sm text-muted-foreground"
                   >
                     <span className="flex items-center justify-center w-5 h-5 rounded-full bg-primary/10 text-primary text-xs font-bold shrink-0 mt-0.5">
@@ -258,24 +427,44 @@ export function MachinePanel({ machineId }: MachinePanelProps) {
               </ol>
             </div>
             <div>
-              <h4 className="text-sm font-semibold text-destructive mb-2 flex items-center gap-1.5">
-                <AlertTriangle className="w-4 h-4" />
-                Seguridad:
-              </h4>
-              <ul className="flex flex-col gap-1 text-sm text-muted-foreground">
-                <li>- No uses peso excesivo en tus primeras sesiones</li>
-                <li>- Si sientes dolor articular, detente</li>
-                <li>- Pide ayuda a un instructor si tienes dudas</li>
-              </ul>
+                <h4 className="text-sm font-semibold text-destructive mb-2 flex items-center gap-1.5">
+                  <AlertTriangle className="w-4 h-4" />
+                  Seguridad:
+                </h4>
+                <ul className="flex flex-col gap-1 text-sm text-muted-foreground">
+                  {(tutorial?.safetyTips.length ? tutorial.safetyTips : ["Sin recomendaciones registradas"]).map((tip, i) => (
+                    <li key={`safety-${i}`}>- {tip}</li>
+                  ))}
+                </ul>
+              </div>
+              {tutorial?.commonErrors.length ? (
+                <div>
+                  <h4 className="text-sm font-semibold text-accent mb-2">Errores comunes:</h4>
+                  <ul className="flex flex-col gap-1 text-sm text-muted-foreground">
+                    {tutorial.commonErrors.map((error, i) => (
+                      <li key={`common-error-${i}`}>- {error}</li>
+                    ))}
+                  </ul>
+                </div>
+              ) : null}
+              {tutorial?.videoUrl ? (
+                <a
+                  href={tutorial.videoUrl}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="text-xs text-primary underline"
+                >
+                  Ver video tutorial
+                </a>
+              ) : null}
             </div>
-          </div>
-          <DialogFooter>
-            <Button onClick={handleTutorialDone} className="w-full">
-              <Check className="w-4 h-4 mr-2" />
-              Entendido, registrar
-            </Button>
-          </DialogFooter>
-        </DialogContent>
+            <DialogFooter>
+              <Button onClick={handleTutorialDone} className="w-full" disabled={markingTutorial}>
+                <Check className="w-4 h-4 mr-2" />
+                {markingTutorial ? "Guardando..." : "Entendido, registrar"}
+              </Button>
+            </DialogFooter>
+          </DialogContent>
       </Dialog>
 
       {/* Header */}
@@ -290,9 +479,6 @@ export function MachinePanel({ machineId }: MachinePanelProps) {
             <h1 className="text-xl font-bold text-foreground">
               {machine.name}
             </h1>
-            <Badge variant="outline" className="font-mono text-xs">
-              {machine.id}
-            </Badge>
             {mode === "plan" && step ? (
               <Badge className="bg-primary/10 text-primary border-0 text-xs">
                 Ejercicio {step}
@@ -303,9 +489,24 @@ export function MachinePanel({ machineId }: MachinePanelProps) {
               </Badge>
             )}
           </div>
-          <p className="text-sm text-muted-foreground">
-            {mode === "plan" ? "Rutina en curso" : machine.muscles.join(" / ")}
+          {mode === "plan" ? (
+            <p className="text-sm text-muted-foreground">Rutina en curso</p>
+          ) : null}
+          <p className="text-xs text-muted-foreground mt-1">
+            Musculos: {machineMuscles || "—"}
           </p>
+          <p className="text-xs text-muted-foreground">
+            Ubicacion: {machine.location ?? "—"}
+          </p>
+          <p className="text-xs text-muted-foreground">
+            Descripcion: {machine.description ?? "—"}
+          </p>
+          {loadingTutorial && !isTutorialSeen ? (
+            <p className="text-xs text-muted-foreground">Cargando tutorial...</p>
+          ) : null}
+          {tutorialNotice && !shouldBlockByTutorial ? (
+            <p className="text-xs text-muted-foreground">{tutorialNotice}</p>
+          ) : null}
         </div>
       </div>
 
@@ -381,7 +582,7 @@ export function MachinePanel({ machineId }: MachinePanelProps) {
                   variant="outline"
                   className="w-full mt-2 bg-transparent"
                   onClick={handleRepeatLastSet}
-                  disabled={!isTutorialSeen}
+                  disabled={shouldBlockByTutorial}
                 >
                   <RotateCcw className="w-4 h-4 mr-2" />
                   Repetir ultimo set
@@ -447,7 +648,7 @@ export function MachinePanel({ machineId }: MachinePanelProps) {
               <Button
                 onClick={handleSaveSet}
                 className="w-full"
-                disabled={!isTutorialSeen}
+                disabled={shouldBlockByTutorial}
               >
                 <Plus className="w-4 h-4 mr-2" />
                 Guardar set
@@ -638,9 +839,16 @@ export function MachinePanel({ machineId }: MachinePanelProps) {
       {/* Finish session */}
       {sessionSets.length > 0 && (
         <div className="mt-6 flex flex-col gap-2">
-          <Button onClick={finishSession} size="lg" className="w-full text-base">
-            <Dumbbell className="w-5 h-5 mr-2" />
-            Finalizar sesion ({sessionSets.length} sets)
+          {finishError && (
+            <p className="text-xs text-destructive text-center">{finishError}</p>
+          )}
+          <Button onClick={finishSession} disabled={finishing} size="lg" className="w-full text-base">
+            {finishing ? (
+              <Loader2 className="w-5 h-5 mr-2 animate-spin" />
+            ) : (
+              <Dumbbell className="w-5 h-5 mr-2" />
+            )}
+            {finishing ? "Guardando..." : `Finalizar sesion (${sessionSets.length} sets)`}
           </Button>
           {mode === "plan" && (
             <>
@@ -696,3 +904,4 @@ export function MachinePanel({ machineId }: MachinePanelProps) {
     </div>
   )
 }
+

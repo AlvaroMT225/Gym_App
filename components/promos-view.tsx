@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useMemo } from "react"
+import { useState, useEffect, useMemo } from "react"
 import {
   Gift,
   Tag,
@@ -8,29 +8,88 @@ import {
   Clock,
   CheckCircle2,
   Bell,
-  ExternalLink,
   Copy,
   Check,
+  Loader2,
 } from "lucide-react"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog"
-import { useStore, type PromoExtended, type Notification } from "@/lib/store"
+import { useStore, type Notification } from "@/lib/store"
 import { formatDateLong } from "@/lib/utils"
 
+// ── DTOs matching API response ────────────────────────────────
+
+interface PromotionDto {
+  id: string
+  title: string
+  description: string | null
+  code: string | null
+  discountType: string | null
+  discountValue: number
+  startsAt: string | null
+  expiresAt: string | null
+  maxUses: number | null
+  usesCount: number
+  status: string        // DB: 'active' | 'inactive' | 'expired'
+  redeemed: boolean
+  redeemedAt: string | null
+}
+
+// Adds computed uiStatus for UI logic
+interface PromoView extends PromotionDto {
+  uiStatus: "vigente" | "expirado"
+}
+
+function toPromoView(p: PromotionDto): PromoView {
+  return {
+    ...p,
+    uiStatus: p.status === "active" && !p.redeemed ? "vigente" : "expirado",
+  }
+}
+
+// ── Component ─────────────────────────────────────────────────
+
 export function PromosView() {
-  const { promos, usePromo, notifications, markNotificationRead } = useStore()
-  const [selectedPromo, setSelectedPromo] = useState<PromoExtended | null>(null)
+  // Notifications stay in the store (separate concern)
+  const { notifications, markNotificationRead } = useStore()
+
+  const [promos, setPromos] = useState<PromoView[]>([])
+  const [loading, setLoading] = useState(true)
+  const [redeemingId, setRedeemingId] = useState<string | null>(null)
+  const [selectedPromo, setSelectedPromo] = useState<PromoView | null>(null)
   const [copiedCode, setCopiedCode] = useState(false)
   const [filterStatus, setFilterStatus] = useState<"all" | "vigente" | "expirado">("all")
 
-  const vigentes = promos.filter((p) => p.status === "vigente")
-  const expirados = promos.filter((p) => p.status === "expirado")
-  const filtered = filterStatus === "all" ? promos : promos.filter((p) => p.status === filterStatus)
+  async function fetchPromos() {
+    try {
+      const res = await fetch("/api/client/promotions")
+      if (res.ok) {
+        const data = await res.json()
+        setPromos((data.promotions ?? []).map(toPromoView))
+      }
+    } catch (err) {
+      console.error("PromosView: error fetching promotions", err)
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  useEffect(() => {
+    fetchPromos()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  const vigentes = promos.filter((p) => p.uiStatus === "vigente")
+  const expirados = promos.filter((p) => p.uiStatus === "expirado")
+  const filtered =
+    filterStatus === "all" ? promos : promos.filter((p) => p.uiStatus === filterStatus)
 
   const promoNotifications = useMemo(() => {
-    return notifications.filter((n) => n.type === "promo").sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
+    return (notifications as Notification[])
+      .filter((n) => n.type === "promo")
+      .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
   }, [notifications])
   const unreadCount = promoNotifications.filter((n) => !n.read).length
 
@@ -40,13 +99,25 @@ export function PromosView() {
     setTimeout(() => setCopiedCode(false), 2000)
   }
 
-  const handleUsePromo = (id: string) => {
-    setSelectedPromo(null)
-  }
-
-  const usePromoHandler = (id: string, code: string) => {
-    usePromo(id)
-    handleCopyCode(code)
+  async function handleRedeem(promo: PromoView) {
+    if (redeemingId) return
+    setRedeemingId(promo.id)
+    try {
+      const res = await fetch(`/api/client/promotions/${promo.id}/redeem`, {
+        method: "POST",
+      })
+      if (res.ok) {
+        setSelectedPromo(null)
+        await fetchPromos()
+      } else {
+        const data = await res.json()
+        console.error("PromosView: redeem error:", data.error)
+      }
+    } catch (err) {
+      console.error("PromosView: redeem unexpected error", err)
+    } finally {
+      setRedeemingId(null)
+    }
   }
 
   return (
@@ -87,23 +158,33 @@ export function PromosView() {
           </CardTitle>
         </CardHeader>
         <CardContent className="flex flex-col gap-1.5">
-          {promoNotifications.length > 0 ? promoNotifications.map((notif) => (
-            <button
-              key={notif.id}
-              type="button"
-              onClick={() => markNotificationRead(notif.id)}
-              className={`flex items-start gap-3 px-3 py-2.5 rounded-lg text-left transition-colors ${
-                notif.read ? "bg-background" : "bg-primary/5 hover:bg-primary/10"
-              }`}
-            >
-              <div className={`w-2 h-2 rounded-full shrink-0 mt-1.5 ${notif.read ? "bg-muted" : "bg-primary"}`} />
-              <div className="flex-1 min-w-0">
-                <p className={`text-sm ${notif.read ? "text-muted-foreground" : "text-foreground font-medium"}`}>{notif.message}</p>
-                <p className="text-xs text-muted-foreground">{formatDateLong(notif.date)}</p>
-              </div>
-            </button>
-          )) : (
-            <p className="text-sm text-muted-foreground text-center py-4">Sin notificaciones de promos</p>
+          {promoNotifications.length > 0 ? (
+            promoNotifications.map((notif) => (
+              <button
+                key={notif.id}
+                type="button"
+                onClick={() => markNotificationRead(notif.id)}
+                className={`flex items-start gap-3 px-3 py-2.5 rounded-lg text-left transition-colors ${
+                  notif.read ? "bg-background" : "bg-primary/5 hover:bg-primary/10"
+                }`}
+              >
+                <div
+                  className={`w-2 h-2 rounded-full shrink-0 mt-1.5 ${notif.read ? "bg-muted" : "bg-primary"}`}
+                />
+                <div className="flex-1 min-w-0">
+                  <p
+                    className={`text-sm ${notif.read ? "text-muted-foreground" : "text-foreground font-medium"}`}
+                  >
+                    {notif.message}
+                  </p>
+                  <p className="text-xs text-muted-foreground">{formatDateLong(notif.date)}</p>
+                </div>
+              </button>
+            ))
+          ) : (
+            <p className="text-sm text-muted-foreground text-center py-4">
+              Sin notificaciones de promos
+            </p>
           )}
         </CardContent>
       </Card>
@@ -128,46 +209,89 @@ export function PromosView() {
 
       {/* Promo list */}
       <div className="flex flex-col gap-3">
-        {filtered.map((promo) => (
-          <button
-            key={promo.id}
-            type="button"
-            onClick={() => setSelectedPromo(promo)}
-            className="text-left"
-          >
-            <Card className={`border transition-all duration-200 hover:shadow-md cursor-pointer ${
-              promo.status === "vigente" ? "border-primary/20 hover:border-primary/40" : "border-border opacity-70"
-            }`}>
-              <CardContent className="flex items-start gap-3 py-4">
-                <div className={`flex items-center justify-center w-10 h-10 rounded-lg shrink-0 ${
-                  promo.status === "vigente" ? "bg-primary/10" : "bg-muted"
-                }`}>
-                  <Gift className={`w-5 h-5 ${promo.status === "vigente" ? "text-primary" : "text-muted-foreground"}`} />
-                </div>
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-center gap-2 mb-1">
-                    <h4 className="text-sm font-semibold text-foreground">{promo.title}</h4>
-                    <Badge className={`border-0 text-xs ${
-                      promo.status === "vigente" ? "bg-primary/10 text-primary" : "bg-muted text-muted-foreground"
-                    }`}>
-                      {promo.status === "vigente" ? "Vigente" : promo.usedAt ? "Usada" : "Expirada"}
-                    </Badge>
+        {loading ? (
+          <Card className="border border-border">
+            <CardContent className="py-6 text-center text-sm text-muted-foreground">
+              Cargando promociones…
+            </CardContent>
+          </Card>
+        ) : filtered.length === 0 ? (
+          <Card className="border border-dashed border-muted-foreground/20 bg-muted/30 shadow-none">
+            <CardContent className="flex flex-col items-center py-8 text-center">
+              <Gift className="w-8 h-8 text-muted-foreground/40 mb-3" />
+              <p className="text-sm text-muted-foreground">
+                {filterStatus === "all"
+                  ? "No hay promociones disponibles."
+                  : filterStatus === "vigente"
+                  ? "No hay promociones vigentes."
+                  : "No tienes promociones usadas o expiradas."}
+              </p>
+            </CardContent>
+          </Card>
+        ) : (
+          filtered.map((promo) => (
+            <button
+              key={promo.id}
+              type="button"
+              onClick={() => setSelectedPromo(promo)}
+              className="text-left"
+            >
+              <Card
+                className={`border transition-all duration-200 hover:shadow-md cursor-pointer ${
+                  promo.uiStatus === "vigente"
+                    ? "border-primary/20 hover:border-primary/40"
+                    : "border-border opacity-70"
+                }`}
+              >
+                <CardContent className="flex items-start gap-3 py-4">
+                  <div
+                    className={`flex items-center justify-center w-10 h-10 rounded-lg shrink-0 ${
+                      promo.uiStatus === "vigente" ? "bg-primary/10" : "bg-muted"
+                    }`}
+                  >
+                    <Gift
+                      className={`w-5 h-5 ${
+                        promo.uiStatus === "vigente" ? "text-primary" : "text-muted-foreground"
+                      }`}
+                    />
                   </div>
-                  <p className="text-xs text-muted-foreground line-clamp-2">{promo.description}</p>
-                  <p className="text-xs text-muted-foreground mt-1">
-                    {promo.status === "vigente" ? `Valida hasta: ${formatDateLong(promo.validUntil)}` : `${promo.usedAt ? `Usada el ${formatDateLong(promo.usedAt)}` : `Expiro el ${formatDateLong(promo.validUntil)}`}`}
-                  </p>
-                  {promo.code && promo.status === "vigente" && (
-                    <Badge variant="secondary" className="mt-2 font-mono text-xs">
-                      <Tag className="w-3 h-3 mr-1" />
-                      {promo.code}
-                    </Badge>
-                  )}
-                </div>
-              </CardContent>
-            </Card>
-          </button>
-        ))}
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2 mb-1">
+                      <h4 className="text-sm font-semibold text-foreground">{promo.title}</h4>
+                      <Badge
+                        className={`border-0 text-xs ${
+                          promo.uiStatus === "vigente"
+                            ? "bg-primary/10 text-primary"
+                            : "bg-muted text-muted-foreground"
+                        }`}
+                      >
+                        {promo.uiStatus === "vigente"
+                          ? "Vigente"
+                          : promo.redeemedAt
+                          ? "Usada"
+                          : "Expirada"}
+                      </Badge>
+                    </div>
+                    <p className="text-xs text-muted-foreground line-clamp-2">{promo.description}</p>
+                    <p className="text-xs text-muted-foreground mt-1">
+                      {promo.uiStatus === "vigente"
+                        ? `Valida hasta: ${formatDateLong(promo.expiresAt ?? "")}`
+                        : promo.redeemedAt
+                        ? `Usada el ${formatDateLong(promo.redeemedAt)}`
+                        : `Expiro el ${formatDateLong(promo.expiresAt ?? "")}`}
+                    </p>
+                    {promo.code && promo.uiStatus === "vigente" && (
+                      <Badge variant="secondary" className="mt-2 font-mono text-xs">
+                        <Tag className="w-3 h-3 mr-1" />
+                        {promo.code}
+                      </Badge>
+                    )}
+                  </div>
+                </CardContent>
+              </Card>
+            </button>
+          ))
+        )}
       </div>
 
       {/* Detail Dialog */}
@@ -191,7 +315,7 @@ export function PromosView() {
                     <div className="flex-1 px-4 py-3 rounded-lg bg-muted font-mono text-sm font-bold text-foreground text-center tracking-wider">
                       {selectedPromo.code}
                     </div>
-                    {selectedPromo.status === "vigente" && (
+                    {selectedPromo.uiStatus === "vigente" && (
                       <Button
                         variant="outline"
                         size="sm"
@@ -211,28 +335,43 @@ export function PromosView() {
                 <p className="text-xs text-muted-foreground">Cupon QR (demo)</p>
               </div>
 
-              {/* Terms */}
-              {selectedPromo.terms && (
-                <div className="text-xs text-muted-foreground leading-relaxed bg-muted/50 px-3 py-2 rounded-lg">
-                  <span className="font-semibold">Terminos:</span> {selectedPromo.terms}
-                </div>
-              )}
-
               {/* Status info */}
               <div className="flex items-center justify-between text-sm">
                 <span className="text-muted-foreground">Estado:</span>
-                <Badge className={`border-0 ${selectedPromo.status === "vigente" ? "bg-primary/10 text-primary" : "bg-muted text-muted-foreground"}`}>
-                  {selectedPromo.status === "vigente" ? "Vigente" : selectedPromo.usedAt ? "Usada" : "Expirada"}
+                <Badge
+                  className={`border-0 ${
+                    selectedPromo.uiStatus === "vigente"
+                      ? "bg-primary/10 text-primary"
+                      : "bg-muted text-muted-foreground"
+                  }`}
+                >
+                  {selectedPromo.uiStatus === "vigente"
+                    ? "Vigente"
+                    : selectedPromo.redeemedAt
+                    ? "Usada"
+                    : "Expirada"}
                 </Badge>
               </div>
-              <div className="flex items-center justify-between text-sm">
-                <span className="text-muted-foreground">Validez:</span>
-                <span className="font-medium text-foreground">{formatDateLong(selectedPromo.validUntil)}</span>
-              </div>
+              {selectedPromo.expiresAt && (
+                <div className="flex items-center justify-between text-sm">
+                  <span className="text-muted-foreground">Validez:</span>
+                  <span className="font-medium text-foreground">
+                    {formatDateLong(selectedPromo.expiresAt)}
+                  </span>
+                </div>
+              )}
 
-              {selectedPromo.status === "vigente" && (
-                <Button onClick={() => usePromoHandler(selectedPromo.id, selectedPromo.code!)} className="w-full">
-                  <CheckCircle2 className="w-4 h-4 mr-2" />
+              {selectedPromo.uiStatus === "vigente" && (
+                <Button
+                  onClick={() => handleRedeem(selectedPromo)}
+                  disabled={redeemingId === selectedPromo.id}
+                  className="w-full"
+                >
+                  {redeemingId === selectedPromo.id ? (
+                    <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                  ) : (
+                    <CheckCircle2 className="w-4 h-4 mr-2" />
+                  )}
                   Marcar como usada
                 </Button>
               )}

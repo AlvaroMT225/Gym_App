@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useMemo } from "react"
+import { useEffect, useMemo, useState } from "react"
 import {
   Trophy,
   Flame,
@@ -23,125 +23,304 @@ import {
   Tooltip,
   ResponsiveContainer,
 } from "recharts"
-import { machines } from "@/lib/mock-data"
-import { useStore } from "@/lib/store"
 import { formatNumber } from "@/lib/utils"
 
 type Range = "7" | "30" | "90"
 
+interface StatsResponse {
+  currentStreak: number
+  totalPoints: number
+}
+
+interface WorkoutSessionSummary {
+  id: string
+  routine_id: string | null
+  started_at: string
+  ended_at: string | null
+  duration_minutes: number | null
+  total_volume_kg: number
+  total_sets: number
+  total_reps: number
+  status: string
+  session_type: string
+}
+
+interface PersonalRecordSummary {
+  id: string
+  exerciseId: string
+  exerciseName: string | null
+  muscleGroups: string[] | null
+  machineId: string | null
+  recordType: string
+  value: number
+  previousValue: number | null
+  achievedAt: string
+}
+
+interface WorkoutSessionsResponse {
+  sessions?: WorkoutSessionSummary[]
+}
+
+interface PersonalRecordsResponse {
+  records?: PersonalRecordSummary[]
+}
+
+function getRecordTypeLabel(recordType: string) {
+  switch (recordType) {
+    case "1rm":
+      return "1RM"
+    case "max_reps":
+      return "Max reps"
+    case "max_volume":
+      return "Max volumen"
+    case "best_time":
+      return "Mejor tiempo"
+    default:
+      return recordType || "PR"
+  }
+}
+
 export function ProgressView() {
-  const { sessions, user } = useStore()
   const [range, setRange] = useState<Range>("30")
   const [machineFilter, setMachineFilter] = useState<string>("all")
+  const [stats, setStats] = useState<StatsResponse>({ currentStreak: 0, totalPoints: 0 })
+  const [sessions, setSessions] = useState<WorkoutSessionSummary[]>([])
+  const [records, setRecords] = useState<PersonalRecordSummary[]>([])
+  const [loadingStats, setLoadingStats] = useState(true)
+  const [loadingSessions, setLoadingSessions] = useState(true)
+  const [loadingRecords, setLoadingRecords] = useState(true)
+  const [error, setError] = useState<string | null>(null)
+
+  useEffect(() => {
+    let cancelled = false
+
+    const loadStats = async () => {
+      setLoadingStats(true)
+      try {
+        const response = await fetch("/api/user/stats", { cache: "no-store" })
+        if (!response.ok) {
+          throw new Error("stats_request_failed")
+        }
+
+        const json = (await response.json()) as Partial<StatsResponse>
+        if (cancelled) return
+
+        setStats({
+          currentStreak: typeof json.currentStreak === "number" ? json.currentStreak : 0,
+          totalPoints: typeof json.totalPoints === "number" ? json.totalPoints : 0,
+        })
+      } catch {
+        if (cancelled) return
+        setStats({ currentStreak: 0, totalPoints: 0 })
+        setError("No fue posible cargar tu progreso")
+      } finally {
+        if (!cancelled) setLoadingStats(false)
+      }
+    }
+
+    void loadStats()
+
+    return () => {
+      cancelled = true
+    }
+  }, [])
+
+  useEffect(() => {
+    let cancelled = false
+
+    const loadSessions = async () => {
+      setLoadingSessions(true)
+      try {
+        const response = await fetch(`/api/client/workout-sessions?days=${range}`, {
+          cache: "no-store",
+        })
+        if (!response.ok) {
+          throw new Error("sessions_request_failed")
+        }
+
+        const json = (await response.json()) as WorkoutSessionsResponse
+        const rawSessions = Array.isArray(json.sessions) ? json.sessions : []
+        const sessionList = rawSessions
+          .map((session) => {
+            const candidate = session as Partial<WorkoutSessionSummary>
+            return {
+              id: typeof candidate.id === "string" ? candidate.id : "",
+              routine_id: typeof candidate.routine_id === "string" ? candidate.routine_id : null,
+              started_at: typeof candidate.started_at === "string" ? candidate.started_at : "",
+              ended_at: typeof candidate.ended_at === "string" ? candidate.ended_at : null,
+              duration_minutes:
+                typeof candidate.duration_minutes === "number" ? candidate.duration_minutes : null,
+              total_volume_kg:
+                typeof candidate.total_volume_kg === "number" ? candidate.total_volume_kg : 0,
+              total_sets: typeof candidate.total_sets === "number" ? candidate.total_sets : 0,
+              total_reps: typeof candidate.total_reps === "number" ? candidate.total_reps : 0,
+              status: typeof candidate.status === "string" ? candidate.status : "",
+              session_type: typeof candidate.session_type === "string" ? candidate.session_type : "",
+            }
+          })
+          .filter((session) => session.id && session.started_at)
+
+        if (cancelled) return
+        setSessions(sessionList)
+      } catch {
+        if (cancelled) return
+        setSessions([])
+        setError("No fue posible cargar tu progreso")
+      } finally {
+        if (!cancelled) setLoadingSessions(false)
+      }
+    }
+
+    void loadSessions()
+
+    return () => {
+      cancelled = true
+    }
+  }, [range])
+
+  useEffect(() => {
+    let cancelled = false
+
+    const loadRecords = async () => {
+      setLoadingRecords(true)
+      try {
+        const response = await fetch("/api/client/personal-records/recent", { cache: "no-store" })
+        if (!response.ok) {
+          throw new Error("records_request_failed")
+        }
+
+        const json = (await response.json()) as PersonalRecordsResponse
+        const rawRecords = Array.isArray(json.records) ? json.records : []
+        const recordList = rawRecords
+          .map((record) => {
+            const candidate = record as Partial<PersonalRecordSummary>
+            return {
+              id: typeof candidate.id === "string" ? candidate.id : "",
+              exerciseId: typeof candidate.exerciseId === "string" ? candidate.exerciseId : "",
+              exerciseName: typeof candidate.exerciseName === "string" ? candidate.exerciseName : null,
+              muscleGroups: Array.isArray(candidate.muscleGroups)
+                ? candidate.muscleGroups.filter(
+                    (muscle): muscle is string => typeof muscle === "string"
+                  )
+                : null,
+              machineId: typeof candidate.machineId === "string" ? candidate.machineId : null,
+              recordType: typeof candidate.recordType === "string" ? candidate.recordType : "",
+              value: typeof candidate.value === "number" ? candidate.value : 0,
+              previousValue:
+                typeof candidate.previousValue === "number" ? candidate.previousValue : null,
+              achievedAt: typeof candidate.achievedAt === "string" ? candidate.achievedAt : "",
+            }
+          })
+          .filter((record) => record.id && record.exerciseId && record.achievedAt)
+
+        if (cancelled) return
+        setRecords(recordList)
+      } catch {
+        if (cancelled) return
+        setRecords([])
+        setError("No fue posible cargar tu progreso")
+      } finally {
+        if (!cancelled) setLoadingRecords(false)
+      }
+    }
+
+    void loadRecords()
+
+    return () => {
+      cancelled = true
+    }
+  }, [])
+
+  const isLoading = loadingStats || loadingSessions || loadingRecords
 
   // Filter sessions by range and machine
   const filteredSessions = useMemo(() => {
-    const now = new Date("2026-02-10")
-    const daysBack = Number(range)
-    const cutoff = new Date(now.getTime() - daysBack * 24 * 60 * 60 * 1000)
-    return sessions.filter((s) => {
-      const d = new Date(s.date)
-      if (d < cutoff) return false
-      if (machineFilter !== "all" && s.machineId !== machineFilter) return false
-      return true
-    })
-  }, [sessions, range, machineFilter])
+    return sessions
+  }, [sessions])
+
+  const filteredRecords = useMemo(() => {
+    if (machineFilter === "all") return records
+    return records.filter((record) => record.machineId === machineFilter)
+  }, [records, machineFilter])
 
   // KPIs
   const totalPRs = useMemo(() => {
-    const prMap: Record<string, number> = {}
-    for (const s of sessions) {
-      for (const set of s.sets) {
-        if (!prMap[s.machineId] || set.weight > prMap[s.machineId]) {
-          prMap[s.machineId] = set.weight
-        }
-      }
-    }
-    return Object.keys(prMap).length
-  }, [sessions])
+    return filteredRecords.length
+  }, [filteredRecords])
 
   const weeklyVolume = useMemo(() => {
-    const now = new Date("2026-02-10")
+    const now = new Date()
     const weekAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000)
     return sessions
-      .filter((s) => new Date(s.date) >= weekAgo)
-      .reduce((acc, s) => acc + s.sets.reduce((a, set) => a + set.weight * set.reps, 0), 0)
+      .filter((s) => new Date(s.started_at) >= weekAgo)
+      .reduce((acc, s) => acc + s.total_volume_kg, 0)
   }, [sessions])
 
   const sessionsPerWeek = useMemo(() => {
-    const now = new Date("2026-02-10")
+    const now = new Date()
     const weekAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000)
-    return sessions.filter((s) => new Date(s.date) >= weekAgo).length
+    return sessions.filter((s) => new Date(s.started_at) >= weekAgo).length
   }, [sessions])
 
   // Weekly volume chart data
   const volumeChartData = useMemo(() => {
     const weeks: Record<string, number> = {}
-    const now = new Date("2026-02-10")
+    const now = new Date()
     for (let i = 5; i >= 0; i--) {
       const weekStart = new Date(now.getTime() - (i * 7 + 6) * 24 * 60 * 60 * 1000)
       const weekEnd = new Date(now.getTime() - i * 7 * 24 * 60 * 60 * 1000)
       const label = `S${6 - i}`
       weeks[label] = 0
       for (const s of sessions) {
-        const d = new Date(s.date)
+        const d = new Date(s.started_at)
         if (d >= weekStart && d <= weekEnd) {
-          if (machineFilter === "all" || s.machineId === machineFilter) {
-            weeks[label] += s.sets.reduce((a, set) => a + set.weight * set.reps, 0)
-          }
+          weeks[label] += s.total_volume_kg
         }
       }
     }
     return Object.entries(weeks).map(([name, volumen]) => ({ name, volumen }))
-  }, [sessions, machineFilter])
+  }, [sessions])
 
   // PR trend chart data
   const prTrendData = useMemo(() => {
-    const machineIds = machineFilter === "all" ? [...new Set(sessions.map((s) => s.machineId))] : [machineFilter]
-    const sorted = [...sessions].sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime())
+    const sorted = [...filteredRecords].sort(
+      (a, b) => new Date(a.achievedAt).getTime() - new Date(b.achievedAt).getTime()
+    )
     const points: { date: string; pr: number }[] = []
     let currentMax = 0
-    for (const s of sorted) {
-      if (!machineIds.includes(s.machineId)) continue
-      for (const set of s.sets) {
-        if (set.weight > currentMax) {
-          currentMax = set.weight
-          const d = new Date(s.date)
-          points.push({ date: `${d.getDate()}/${d.getMonth() + 1}`, pr: currentMax })
-        }
+    for (const record of sorted) {
+      if (record.value > currentMax) {
+        currentMax = record.value
+        const d = new Date(record.achievedAt)
+        points.push({ date: `${d.getDate()}/${d.getMonth() + 1}`, pr: currentMax })
       }
     }
     return points
-  }, [sessions, machineFilter])
+  }, [filteredRecords])
 
   // Consistency: days with sessions in range
   const consistencyDays = useMemo(() => {
     const days = new Set<string>()
     for (const s of filteredSessions) {
-      days.add(s.date.split("T")[0])
+      if (s.started_at.includes("T")) {
+        days.add(s.started_at.split("T")[0])
+      }
     }
     return days.size
   }, [filteredSessions])
 
   // Top PRs by machine
   const topPRs = useMemo(() => {
-    const prMap: Record<string, { weight: number; reps: number; date: string; machineName: string }> = {}
-    for (const s of filteredSessions) {
-      for (const set of s.sets) {
-        const key = s.machineId
-        if (!prMap[key] || set.weight > prMap[key].weight) {
-          const m = machines.find((mac) => mac.id === s.machineId)
-          prMap[key] = {
-            weight: set.weight,
-            reps: set.reps,
-            date: s.date,
-            machineName: m?.name || s.machineId,
-          }
-        }
-      }
-    }
-    return Object.values(prMap).sort((a, b) => b.weight - a.weight)
-  }, [filteredSessions])
+    return [...filteredRecords]
+      .sort((a, b) => b.value - a.value)
+      .slice(0, 10)
+      .map((record) => ({
+        id: record.id,
+        weight: record.value,
+        recordTypeLabel: getRecordTypeLabel(record.recordType),
+        machineName: record.exerciseName || "Ejercicio",
+      }))
+  }, [filteredRecords])
 
   return (
     <div className="flex flex-col gap-6">
@@ -170,13 +349,18 @@ export function ProgressView() {
         <select
           value={machineFilter}
           onChange={(e) => setMachineFilter(e.target.value)}
+          disabled
           className="px-3 py-1.5 rounded-lg border border-input bg-background text-foreground text-xs focus:outline-none focus:ring-2 focus:ring-ring"
         >
-          <option value="all">Todas las maquinas</option>
-          {machines.map((m) => (
-            <option key={m.id} value={m.id}>{m.name}</option>
-          ))}
+          <option value="all">Filtro por maquina: Disponible pronto</option>
         </select>
+        {isLoading ? (
+          <span className="text-xs text-muted-foreground">Cargando progreso...</span>
+        ) : null}
+        {!isLoading && sessions.length === 0 ? (
+          <span className="text-xs text-muted-foreground">Sin sesiones recientes</span>
+        ) : null}
+        {error ? <span className="text-xs text-destructive">{error}</span> : null}
       </div>
 
       {/* KPI Cards */}
@@ -213,7 +397,7 @@ export function ProgressView() {
             <div className="flex items-center justify-center w-10 h-10 rounded-lg bg-accent/15 mb-2">
               <Flame className="w-5 h-5 text-accent" />
             </div>
-            <p className="text-2xl font-bold text-foreground">{user.scanStreak}</p>
+            <p className="text-2xl font-bold text-foreground">{stats.currentStreak}</p>
             <p className="text-xs text-muted-foreground">Dias de racha</p>
           </CardContent>
         </Card>
@@ -316,14 +500,14 @@ export function ProgressView() {
         <CardContent className="flex flex-col gap-2">
           {topPRs.length > 0 ? (
             topPRs.map((pr, i) => (
-              <div key={`pr-${i}-${pr.machineName}`} className="flex items-center justify-between px-3 py-2.5 bg-muted rounded-lg">
+              <div key={`pr-${i}-${pr.id}`} className="flex items-center justify-between px-3 py-2.5 bg-muted rounded-lg">
                 <div className="flex items-center gap-3">
                   <span className="flex items-center justify-center w-7 h-7 rounded-full bg-accent/15 text-accent text-xs font-bold">
                     {i + 1}
                   </span>
                   <div>
                     <p className="text-sm font-medium text-foreground">{pr.machineName}</p>
-                    <p className="text-xs text-muted-foreground">{pr.reps} reps</p>
+                    <p className="text-xs text-muted-foreground">{pr.recordTypeLabel}</p>
                   </div>
                 </div>
                 <Badge className="bg-accent/10 text-accent border-0 text-sm font-bold">{pr.weight} kg</Badge>

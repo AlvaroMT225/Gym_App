@@ -33,7 +33,7 @@ export function PlannedSessionsClientView() {
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
-    if (user?.role !== "USER") {
+    if (user?.role !== "athlete") {
       setLoading(false)
       return
     }

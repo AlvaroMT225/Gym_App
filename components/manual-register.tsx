@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useMemo } from "react"
+import { useState, useMemo, useEffect } from "react"
 import {
   ClipboardList,
   Search,
@@ -11,14 +11,14 @@ import {
   ScanLine,
   X,
   ChevronDown,
+  Loader2,
 } from "lucide-react"
 import Link from "next/link"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
-import { machines } from "@/lib/mock-data"
 import { useStore } from "@/lib/store"
-import { formatDateShort } from "@/lib/utils"
+import { formatDateShort, translateMuscleGroups } from "@/lib/utils"
 
 interface SetEntry {
   weight: number
@@ -28,12 +28,23 @@ interface SetEntry {
   notes?: string
 }
 
+interface CatalogMachine {
+  id: string
+  name: string
+  muscle_groups: string[]
+  equipment_type: string
+}
+
 export function ManualRegister() {
-  const { sessions, addSession } = useStore()
+  const { sessions } = useStore()
+  const [catalogMachines, setCatalogMachines] = useState<CatalogMachine[]>([])
+  const [loadingMachines, setLoadingMachines] = useState(true)
   const [selectedMachine, setSelectedMachine] = useState<string | null>(null)
   const [searchQuery, setSearchQuery] = useState("")
   const [currentSets, setCurrentSets] = useState<SetEntry[]>([])
   const [sessionSaved, setSessionSaved] = useState(false)
+  const [saving, setSaving] = useState(false)
+  const [saveError, setSaveError] = useState<string | null>(null)
 
   // Form state
   const [weight, setWeight] = useState(20)
@@ -43,18 +54,26 @@ export function ManualRegister() {
   const [notes, setNotes] = useState("")
   const [showTimeNotes, setShowTimeNotes] = useState(false)
 
+  useEffect(() => {
+    fetch("/api/machines/catalog")
+      .then((res) => res.json())
+      .then((data) => setCatalogMachines(data.machines ?? []))
+      .catch(() => setCatalogMachines([]))
+      .finally(() => setLoadingMachines(false))
+  }, [])
+
   const filteredMachines = useMemo(() => {
-    if (!searchQuery.trim()) return machines
+    if (!searchQuery.trim()) return catalogMachines
     const q = searchQuery.toLowerCase()
-    return machines.filter(
+    return catalogMachines.filter(
       (m) =>
         m.name.toLowerCase().includes(q) ||
-        m.muscles.some((mu) => mu.toLowerCase().includes(q)) ||
-        m.category.toLowerCase().includes(q)
+        m.muscle_groups.some((mu) => mu.toLowerCase().includes(q)) ||
+        m.equipment_type.toLowerCase().includes(q)
     )
-  }, [searchQuery])
+  }, [searchQuery, catalogMachines])
 
-  const machine = machines.find((m) => m.id === selectedMachine)
+  const machine = catalogMachines.find((m) => m.id === selectedMachine)
 
   // Get history for selected machine from sessions store
   const machineHistory = useMemo(() => {
@@ -110,16 +129,32 @@ export function ManualRegister() {
     setCurrentSets((prev) => prev.filter((_, i) => i !== index))
   }
 
-  const handleSaveSession = () => {
+  const handleSaveSession = async () => {
     if (currentSets.length === 0 || !selectedMachine) return
-    addSession({
-      date: new Date().toISOString(),
-      machineId: selectedMachine,
-      sets: currentSets,
-      source: "manual",
-    })
-    setSessionSaved(true)
-    setCurrentSets([])
+    setSaving(true)
+    setSaveError(null)
+    try {
+      const res = await fetch("/api/client/workout-sessions", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          machineId: selectedMachine,
+          sets: currentSets.map((s) => ({ weight: s.weight, reps: s.reps, rpe: s.rpe })),
+          source: "manual",
+        }),
+      })
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}))
+        setSaveError(data.error ?? "Error al guardar sesión. Intenta de nuevo.")
+        return
+      }
+      setSessionSaved(true)
+      setCurrentSets([])
+    } catch {
+      setSaveError("Error de conexión. Intenta de nuevo.")
+    } finally {
+      setSaving(false)
+    }
   }
 
   const handleNewSession = () => {
@@ -185,6 +220,21 @@ export function ManualRegister() {
           </div>
 
           {/* Machine list */}
+          {loadingMachines ? (
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              {[0, 1, 2, 3].map((i) => (
+                <Card key={i} className="border border-border">
+                  <CardContent className="flex items-center gap-3 py-4">
+                    <div className="w-10 h-10 rounded-lg bg-muted animate-pulse shrink-0" />
+                    <div className="flex-1">
+                      <div className="h-4 w-28 rounded bg-muted animate-pulse mb-1.5" />
+                      <div className="h-3 w-20 rounded bg-muted animate-pulse" />
+                    </div>
+                  </CardContent>
+                </Card>
+              ))}
+            </div>
+          ) : (
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             {filteredMachines.map((m) => (
               <button
@@ -200,7 +250,7 @@ export function ManualRegister() {
                     </div>
                     <div className="flex-1 min-w-0">
                       <h4 className="text-sm font-semibold text-foreground truncate">{m.name}</h4>
-                      <p className="text-xs text-muted-foreground">{m.muscles.join(", ")}</p>
+                      <p className="text-xs text-muted-foreground">{translateMuscleGroups(m.muscle_groups)}</p>
                     </div>
                     <ArrowRight className="w-4 h-4 text-muted-foreground group-hover:text-primary transition-colors" />
                   </CardContent>
@@ -213,6 +263,7 @@ export function ManualRegister() {
               </p>
             )}
           </div>
+          )}
         </div>
       )}
 
@@ -227,7 +278,7 @@ export function ManualRegister() {
               </div>
               <div className="flex-1 min-w-0">
                 <h3 className="text-base font-semibold text-foreground">{machine.name}</h3>
-                <p className="text-xs text-muted-foreground">{machine.muscles.join(", ")}</p>
+                <p className="text-xs text-muted-foreground">{translateMuscleGroups(machine.muscle_groups)}</p>
               </div>
               <Button variant="ghost" size="sm" onClick={handleNewSession} className="shrink-0">
                 Cambiar
@@ -400,9 +451,16 @@ export function ManualRegister() {
                   </div>
                 ))}
 
-                <Button onClick={handleSaveSession} className="w-full mt-2" size="lg">
-                  <Save className="w-4 h-4 mr-2" />
-                  Guardar sesion ({currentSets.length} sets)
+                {saveError && (
+                  <p className="text-xs text-destructive text-center">{saveError}</p>
+                )}
+                <Button onClick={handleSaveSession} disabled={saving} className="w-full mt-2" size="lg">
+                  {saving ? (
+                    <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                  ) : (
+                    <Save className="w-4 h-4 mr-2" />
+                  )}
+                  {saving ? "Guardando..." : `Guardar sesion (${currentSets.length} sets)`}
                 </Button>
               </CardContent>
             </Card>

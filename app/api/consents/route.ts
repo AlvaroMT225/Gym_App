@@ -1,53 +1,34 @@
 import { NextRequest, NextResponse } from "next/server"
 import { requireRoleFromRequest } from "@/lib/auth/guards"
-import { CONSENT_SCOPES, createConsent, listConsentsForClient } from "@/lib/consents"
-import { trainers, getTrainerById } from "@/lib/trainer-data"
+import { listConsentsForAthlete, createConsent, coachExists, getCoachProfile, formatConsentForFrontend } from "@/lib/supabase/consent-queries"
+import { handleApiError, validateBody } from "@/lib/api-utils"
+import { consentBodySchema } from "@/lib/validations/athlete"
 
 export async function GET(request: NextRequest) {
   const sessionOrResponse = await requireRoleFromRequest(request, ["USER"])
   if (sessionOrResponse instanceof NextResponse) return sessionOrResponse
-
-  const consents = listConsentsForClient(sessionOrResponse.userId).map((c) => ({
-    ...c,
-    trainer: getTrainerById(c.trainer_id) ?? null,
-  }))
-
-  return NextResponse.json({ consents })
+  try {
+    const consents = await listConsentsForAthlete(sessionOrResponse.userId)
+    return NextResponse.json({ consents })
+  } catch {
+    return NextResponse.json({ error: "Error al obtener consentimientos" }, { status: 500 })
+  }
 }
 
 export async function POST(request: NextRequest) {
   const sessionOrResponse = await requireRoleFromRequest(request, ["USER"])
   if (sessionOrResponse instanceof NextResponse) return sessionOrResponse
-
   try {
-    const body = await request.json()
-    const trainerId = String(body.trainerId || "")
-    const scopes = Array.isArray(body.scopes)
-      ? body.scopes.filter((s: string) => CONSENT_SCOPES.includes(s))
-      : []
-    const expiresAt =
-      body.expiresAt === null || body.expiresAt === undefined ? null : String(body.expiresAt)
+    const { trainerId, scopes, expiresAt } = await validateBody(request, consentBodySchema)
 
-    if (!trainerId || !trainers.some((t) => t.id === trainerId)) {
+    if (!(await coachExists(trainerId))) {
       return NextResponse.json({ error: "Entrenador invalido" }, { status: 400 })
     }
-    if (scopes.length === 0) {
-      return NextResponse.json({ error: "Selecciona al menos un scope" }, { status: 400 })
-    }
 
-    const consent = createConsent({
-      clientId: sessionOrResponse.userId,
-      trainerId,
-      scopes,
-      expiresAt,
-    })
-
-    return NextResponse.json({ consent })
+    const row = await createConsent({ athleteId: sessionOrResponse.userId, coachId: trainerId, mockScopes: scopes, expiresAt: expiresAt ?? null })
+    const coach = await getCoachProfile(trainerId)
+    return NextResponse.json({ consent: formatConsentForFrontend({ ...row, coach }) })
   } catch (error) {
-    return NextResponse.json(
-      { error: error instanceof Error ? error.message : "Error al crear consentimiento" },
-      { status: 400 }
-    )
+    return handleApiError(error)
   }
 }
-

@@ -70,7 +70,7 @@ export function TrainerSettingsView() {
   if (loading || !settings || !profile) {
     return (
       <div className="p-4 sm:p-6 space-y-4">
-        <h1 className="text-xl font-bold text-foreground">Ajustes</h1>
+        <h1 className="text-xl font-bold text-foreground">Perfil</h1>
         <div className="space-y-3">
           {[1, 2, 3].map((i) => (
             <div key={i} className="h-24 rounded-lg bg-muted animate-pulse" />
@@ -84,7 +84,7 @@ export function TrainerSettingsView() {
     <div className="p-4 sm:p-6 space-y-4">
       <div className="flex items-center gap-2">
         <Settings className="w-5 h-5 text-primary" />
-        <h1 className="text-xl font-bold text-foreground">Ajustes</h1>
+        <h1 className="text-xl font-bold text-foreground">Perfil</h1>
       </div>
 
       {/* Profile Section */}

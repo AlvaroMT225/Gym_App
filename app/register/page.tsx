@@ -2,7 +2,7 @@
 
 import { useState } from "react"
 import Link from "next/link"
-import { Dumbbell, Mail, Lock, User, UserPlus, AlertCircle } from "lucide-react"
+import { Dumbbell, Mail, Lock, User, UserPlus, AlertCircle, CheckCircle } from "lucide-react"
 import { Card, CardContent } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
 import { Button } from "@/components/ui/button"
@@ -11,23 +11,33 @@ import { Badge } from "@/components/ui/badge"
 import { useAuth } from "@/lib/auth/auth-context"
 
 export default function RegisterPage() {
-  const { register } = useAuth()
+  const { signUp } = useAuth()
   const [name, setName] = useState("")
   const [email, setEmail] = useState("")
   const [password, setPassword] = useState("")
   const [error, setError] = useState("")
+  const [success, setSuccess] = useState("")
   const [loading, setLoading] = useState(false)
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     setError("")
+    setSuccess("")
+
     if (password.length < 6) {
       setError("La contrasena debe tener al menos 6 caracteres")
       return
     }
+
     setLoading(true)
-    const result = await register(name, email, password)
-    if (result.error) setError(result.error)
+    const result = await signUp(email, password, name, "athlete")
+
+    if (result.error) {
+      setError(result.error)
+    } else if (result.requiresConfirmation) {
+      setSuccess("Cuenta creada. Revisa tu email para confirmar tu cuenta antes de iniciar sesion.")
+    }
+    // Si no requiere confirmacion, signUp ya redirige automaticamente
     setLoading(false)
   }
 
@@ -56,77 +66,98 @@ export default function RegisterPage() {
                 </div>
               )}
 
-              <div className="flex flex-col gap-1.5">
-                <Label htmlFor="name">Nombre completo</Label>
-                <div className="relative">
-                  <User className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-                  <Input
-                    id="name"
-                    type="text"
-                    placeholder="Tu nombre"
-                    value={name}
-                    onChange={(e) => setName(e.target.value)}
-                    className="pl-10"
-                    autoComplete="name"
-                    required
-                  />
+              {success && (
+                <div className="flex items-center gap-2 p-3 rounded-lg bg-green-500/10 text-green-700 dark:text-green-400 text-sm">
+                  <CheckCircle className="w-4 h-4 shrink-0" />
+                  {success}
                 </div>
-              </div>
+              )}
 
-              <div className="flex flex-col gap-1.5">
-                <Label htmlFor="email">Correo electronico</Label>
-                <div className="relative">
-                  <Mail className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-                  <Input
-                    id="email"
-                    type="email"
-                    placeholder="tu@email.com"
-                    value={email}
-                    onChange={(e) => setEmail(e.target.value)}
-                    className="pl-10"
-                    autoComplete="email"
-                    required
-                  />
-                </div>
-              </div>
+              {!success && (
+                <>
+                  <div className="flex flex-col gap-1.5">
+                    <Label htmlFor="name">Nombre completo</Label>
+                    <div className="relative">
+                      <User className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+                      <Input
+                        id="name"
+                        type="text"
+                        placeholder="Tu nombre"
+                        value={name}
+                        onChange={(e) => setName(e.target.value)}
+                        className="pl-10"
+                        autoComplete="name"
+                        required
+                      />
+                    </div>
+                  </div>
 
-              <div className="flex flex-col gap-1.5">
-                <Label htmlFor="password">Contrasena</Label>
-                <div className="relative">
-                  <Lock className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-                  <Input
-                    id="password"
-                    type="password"
-                    placeholder="Minimo 6 caracteres"
-                    value={password}
-                    onChange={(e) => setPassword(e.target.value)}
-                    className="pl-10"
-                    autoComplete="new-password"
-                    required
-                    minLength={6}
-                  />
-                </div>
-              </div>
+                  <div className="flex flex-col gap-1.5">
+                    <Label htmlFor="email">Correo electronico</Label>
+                    <div className="relative">
+                      <Mail className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+                      <Input
+                        id="email"
+                        type="email"
+                        placeholder="tu@email.com"
+                        value={email}
+                        onChange={(e) => setEmail(e.target.value)}
+                        className="pl-10"
+                        autoComplete="email"
+                        required
+                      />
+                    </div>
+                  </div>
 
-              <Button type="submit" className="w-full" disabled={loading}>
-                <UserPlus className="w-4 h-4 mr-2" />
-                {loading ? "Creando cuenta..." : "Crear cuenta"}
-              </Button>
+                  <div className="flex flex-col gap-1.5">
+                    <Label htmlFor="password">Contrasena</Label>
+                    <div className="relative">
+                      <Lock className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+                      <Input
+                        id="password"
+                        type="password"
+                        placeholder="Minimo 6 caracteres"
+                        value={password}
+                        onChange={(e) => setPassword(e.target.value)}
+                        className="pl-10"
+                        autoComplete="new-password"
+                        required
+                        minLength={6}
+                      />
+                    </div>
+                  </div>
 
-              <p className="text-xs text-center text-muted-foreground">
-                Las cuentas nuevas se crean con rol{" "}
-                <Badge className="bg-primary/10 text-primary border-0 text-xs">USER</Badge>
-              </p>
+                  <Button type="submit" className="w-full" disabled={loading}>
+                    <UserPlus className="w-4 h-4 mr-2" />
+                    {loading ? "Creando cuenta..." : "Crear cuenta"}
+                  </Button>
+
+                  <p className="text-xs text-center text-muted-foreground">
+                    Las cuentas nuevas se crean con rol{" "}
+                    <Badge className="bg-primary/10 text-primary border-0 text-xs">Atleta</Badge>
+                  </p>
+                </>
+              )}
+
+              {success && (
+                <Link href="/login">
+                  <Button variant="outline" className="w-full">
+                    Ir a iniciar sesion
+                  </Button>
+                </Link>
+              )}
             </form>
 
-            <div className="mt-4 text-center">
-              <p className="text-sm text-muted-foreground">
-                Ya tienes cuenta?{" "}
-                <Link href="/login" className="text-primary font-medium hover:underline">
-                  Inicia sesion
-                </Link>
-              </p>
-            </div>
+            {!success && (
+              <div className="mt-4 text-center">
+                <p className="text-sm text-muted-foreground">
+                  Ya tienes cuenta?{" "}
+                  <Link href="/login" className="text-primary font-medium hover:underline">
+                    Inicia sesion
+                  </Link>
+                </p>
+              </div>
+            )}
           </CardContent>
         </Card>
       </div>

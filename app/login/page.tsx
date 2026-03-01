@@ -2,7 +2,7 @@
 
 import { useState } from "react"
 import Link from "next/link"
-import { Dumbbell, Mail, Lock, LogIn, AlertCircle } from "lucide-react"
+import { Dumbbell, Mail, Lock, LogIn, AlertCircle, CheckCircle } from "lucide-react"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
 import { Button } from "@/components/ui/button"
@@ -11,13 +11,19 @@ import { Badge } from "@/components/ui/badge"
 import { useAuth } from "@/lib/auth/auth-context"
 
 const DEMO_ACCOUNTS = [
-  { label: "Admin", email: "admin@minty.demo", password: "Admin123!", role: "ADMIN" as const },
-  { label: "Trainer", email: "trainer@minty.demo", password: "Trainer123!", role: "TRAINER" as const },
-  { label: "User", email: "user@minty.demo", password: "User123!", role: "USER" as const },
+  { label: "Administrador", email: "admin@minthy.demo", password: "Admin123!", role: "admin" as const },
+  { label: "Entrenador", email: "coach@minthy.demo", password: "Coach123!", role: "coach" as const },
+  { label: "Atleta", email: "atleta@minthy.demo", password: "Atleta123!", role: "athlete" as const },
 ]
 
+const ROLE_LABELS: Record<string, string> = {
+  admin: "Admin",
+  coach: "Coach",
+  athlete: "Atleta",
+}
+
 export default function LoginPage() {
-  const { login } = useAuth()
+  const { signIn } = useAuth()
 
   const [email, setEmail] = useState("")
   const [password, setPassword] = useState("")
@@ -28,7 +34,7 @@ export default function LoginPage() {
     e.preventDefault()
     setError("")
     setLoading(true)
-    const result = await login(email, password)
+    const result = await signIn(email, password)
     if (result.error) setError(result.error)
     setLoading(false)
   }
@@ -38,7 +44,7 @@ export default function LoginPage() {
     setPassword(demo.password)
     setError("")
     setLoading(true)
-    const result = await login(demo.email, demo.password)
+    const result = await signIn(demo.email, demo.password)
     if (result.error) setError(result.error)
     setLoading(false)
   }
@@ -140,7 +146,7 @@ export default function LoginPage() {
                   <p className="text-xs text-muted-foreground">{demo.password}</p>
                 </div>
                 <Badge className="bg-primary/10 text-primary border-0 text-xs">
-                  {demo.role}
+                  {ROLE_LABELS[demo.role]}
                 </Badge>
               </button>
             ))}

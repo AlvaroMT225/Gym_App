@@ -24,3 +24,21 @@ export function formatDateLong(dateStr: string): string {
   const d = new Date(dateStr)
   return `${d.getDate()} de ${MONTHS_LONG[d.getMonth()]} de ${d.getFullYear()}`
 }
+
+export const MUSCLE_GROUP_LABELS: Record<string, string> = {
+  chest: "Pecho",
+  back: "Espalda",
+  shoulders: "Hombros",
+  biceps: "Bíceps",
+  triceps: "Tríceps",
+  arms: "Brazos",
+  legs: "Piernas",
+  glutes: "Glúteos",
+  core: "Core",
+  full_body: "Cuerpo Completo",
+  cardio: "Cardio",
+}
+
+export function translateMuscleGroups(groups: string[]): string {
+  return groups.map((g) => MUSCLE_GROUP_LABELS[g] ?? g).join(", ")
+}

@@ -1,7 +1,9 @@
 import { NextRequest, NextResponse } from "next/server"
 import { requireRoleFromRequest } from "@/lib/auth/guards"
 import { requireActiveConsent, requireConsentScope } from "@/lib/consent-guards"
-import { listSessionsForClient, sessionComments } from "@/lib/trainer-data"
+import { createClient } from "@/lib/supabase/server"
+import { handleApiError, validateBody } from "@/lib/api-utils"
+import { commentBodySchema } from "@/lib/validations/trainer"
 
 export async function POST(
   request: NextRequest,
@@ -11,38 +13,57 @@ export async function POST(
   const sessionOrResponse = await requireRoleFromRequest(request, ["TRAINER", "ADMIN"])
   if (sessionOrResponse instanceof NextResponse) return sessionOrResponse
 
-  const consentResult = requireActiveConsent({
-    trainerId: sessionOrResponse.userId,
-    clientId,
-  })
-  if ("error" in consentResult) return consentResult.error
+  const coachId = sessionOrResponse.userId
 
-  const scopeResult = requireConsentScope(consentResult.consent, "sessions:comment")
-  if ("error" in scopeResult) return scopeResult.error
+  try {
+    const { comment } = await validateBody(request, commentBodySchema)
 
-  const session = listSessionsForClient(clientId).find(
-    (s) => s.id === sessionId
-  )
-  if (!session) {
-    return NextResponse.json({ error: "Sesion no encontrada" }, { status: 404 })
+    const supabase = await createClient()
+
+    const consentResult = await requireActiveConsent(supabase, coachId, clientId)
+    if ("error" in consentResult) return consentResult.error
+
+    const scopeResult = requireConsentScope(consentResult.consent, "view_progress")
+    if ("error" in scopeResult) return scopeResult.error
+
+    // Verify session exists and belongs to the athlete
+    const { data: sessionRow, error: sessionError } = await supabase
+      .from("workout_sessions")
+      .select("id")
+      .eq("id", sessionId)
+      .eq("profile_id", clientId)
+      .single()
+
+    if (sessionError || !sessionRow) {
+      return NextResponse.json({ error: "Sesión no encontrada" }, { status: 404 })
+    }
+
+    // INSERT comment
+    const { data: inserted, error: insertError } = await supabase
+      .from("session_comments")
+      .insert({
+        session_id: sessionId,
+        coach_id: coachId,
+        athlete_id: clientId,
+        content: comment,
+      })
+      .select("id, content, created_at")
+      .single()
+
+    if (insertError || !inserted) {
+      console.error("POST /api/trainer/clients/[clientId]/sessions/[sessionId]/comment insert error:", insertError)
+      return NextResponse.json({ error: "Error al guardar comentario" }, { status: 500 })
+    }
+
+    return NextResponse.json({
+      comment: {
+        id: inserted.id,
+        comment: inserted.content,
+        createdAt: inserted.created_at,
+      },
+    })
+  } catch (err) {
+    console.error("POST /api/trainer/clients/[clientId]/sessions/[sessionId]/comment unexpected error:", err)
+    return handleApiError(err)
   }
-
-  const body = await request.json()
-  const comment = String(body.comment || "").trim()
-  if (!comment) {
-    return NextResponse.json({ error: "Comentario requerido" }, { status: 400 })
-  }
-
-  const entry = {
-    id: `sc-${Date.now()}`,
-    sessionId,
-    clientId,
-    trainerId: sessionOrResponse.userId,
-    comment,
-    createdAt: new Date().toISOString(),
-  }
-  sessionComments.unshift(entry)
-
-  return NextResponse.json({ comment: entry })
 }
-

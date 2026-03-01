@@ -25,6 +25,7 @@ import {
   Phone,
   GraduationCap,
   Clock,
+  Loader2,
 } from "lucide-react"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
@@ -55,8 +56,9 @@ import {
 } from "@/components/ui/select"
 import { useStore } from "@/lib/store"
 import { useAuth } from "@/lib/auth/auth-context"
+import { getRoleLabel } from "@/lib/auth/role-labels"
 import { formatDateLong, formatNumber } from "@/lib/utils"
-import { coachDirectory } from "@/lib/mock-data"
+import { getUserStats, getUserMembership } from "@/lib/supabase/queries/profiles"
 
 const ALL_SCOPES = [
   { id: "sessions:read", label: "Sesiones" },
@@ -95,17 +97,94 @@ interface TrainerOption {
   id: string
   name: string
   avatar: string
+  email?: string | null
+  phone?: string | null
 }
 
 export function ProfileView() {
-  const { user, weightUnit, setWeightUnit, optedInRankings, toggleRankingsOptIn, updateUser } =
+  const { user, weightUnit, setWeightUnit, optedInRankings, toggleRankingsOptIn } =
     useStore()
-  const { user: authUser, logout } = useAuth()
+  const { user: authUser, profile, signOut, refreshProfile } = useAuth()
+
+  // Campos de identidad reales desde Supabase (con fallback a mock mientras carga)
+  const realName = [profile?.first_name, profile?.last_name].filter(Boolean).join(' ') || authUser?.name || ''
+  const realEmail = profile?.email || authUser?.email || ''
+  const realAvatar = (`${profile?.first_name?.[0] ?? ''}${profile?.last_name?.[0] ?? ''}`).toUpperCase() || '??'
+  const formatMemberSince = (dateString: string | undefined): string => {
+    if (!dateString) return 'N/A'
+    return new Date(dateString).toLocaleDateString('es-ES', {
+      year: 'numeric',
+      month: 'long',
+      day: 'numeric',
+    })
+  }
+
+  const formatPlanType = (planType: string | undefined): string => {
+    const planNames: Record<string, string> = {
+      basic: 'Basico',
+      monthly: 'Mensual',
+      quarterly: 'Trimestral',
+      annual: 'Anual',
+      premium: 'Premium',
+    }
+    return planNames[planType ?? ''] ?? planType ?? 'Sin plan'
+  }
+
+  const getPaymentStatusClass = (status: string | undefined): string => {
+    switch (status) {
+      case 'active': return 'bg-primary/10 text-primary'
+      case 'pending': return 'bg-accent/15 text-accent'
+      default: return 'bg-destructive/10 text-destructive'
+    }
+  }
+
+  const getPaymentStatusLabel = (status: string | undefined): string => {
+    switch (status) {
+      case 'active': return 'Al dia'
+      case 'pending': return 'Pendiente'
+      case 'overdue': return 'Vencido'
+      case 'expired': return 'Expirado'
+      case 'cancelled': return 'Cancelado'
+      default: return status ?? 'N/A'
+    }
+  }
 
   const [editOpen, setEditOpen] = useState(false)
-  const [editName, setEditName] = useState(user.name)
-  const [editEmail, setEditEmail] = useState(user.email)
+  const [editName, setEditName] = useState(realName)
+  const [editEmail, setEditEmail] = useState(realEmail)
   const [saved, setSaved] = useState(false)
+  const [saving, setSaving] = useState(false)
+  const [editError, setEditError] = useState<string | null>(null)
+
+  // User stats y membresía desde Supabase
+  const [userStats, setUserStats] = useState<{
+    current_streak: number
+    total_points: number
+    total_sessions: number
+    total_volume_kg: number
+    level: number
+  } | null>(null)
+
+  const [membership, setMembership] = useState<{
+    plan_type: string
+    status: string
+    start_date: string | null
+    end_date: string | null
+    auto_renew: boolean
+  } | null>(null)
+
+  useEffect(() => {
+    const loadUserData = async () => {
+      if (!profile?.id) return
+      const [stats, membershipData] = await Promise.all([
+        getUserStats(profile.id),
+        getUserMembership(profile.id),
+      ])
+      setUserStats(stats)
+      setMembership(membershipData)
+    }
+    loadUserData()
+  }, [profile?.id])
 
   // Consent state (USER only)
   const [consents, setConsents] = useState<ConsentEntry[]>([])
@@ -122,7 +201,7 @@ export function ProfileView() {
   const [showHidden, setShowHidden] = useState(false)
 
   const loadConsents = useCallback(async () => {
-    if (authUser?.role !== "USER") return
+    if (authUser?.role !== "athlete") return
     setConsentLoading(true)
     try {
       const [consentsRes, trainersRes] = await Promise.all([
@@ -186,13 +265,8 @@ export function ProfileView() {
         return
       }
       const created = data.consent
-      // Build trainerInfo from coachDirectory (static import, always available)
-      // then fall back to trainers state in case a future trainer is not in the directory
-      const directoryEntry = coachDirectory.find((c) => c.id === created.trainer_id)
-      const trainerInfo =
-        directoryEntry
-          ? { id: directoryEntry.id, name: directoryEntry.name, avatar: directoryEntry.avatar }
-          : (trainers.find((t) => t.id === created.trainer_id) ?? null)
+      // Use trainer from API response if available, otherwise look up in trainers state
+      const trainerInfo = created.trainer ?? trainers.find((t) => t.id === created.trainer_id) ?? null
       setConsents((prev) => [
         {
           id: created.id,
@@ -333,34 +407,55 @@ export function ProfileView() {
   const activeConsent = consents.find(
     (c) => c.status === "ACTIVE" && !c.hidden_by_client
   )
-  const activeCoach =
-    activeConsent?.trainer?.id
-      ? (coachDirectory.find((c) => c.id === activeConsent.trainer!.id) ?? null)
-      : consentLoading && user.planType === "COACHING"
-        ? (coachDirectory.find((c) => c.id === "trainer-1") ?? null) // optimistic fallback while loading
-        : null
-
-  // Show block only when there's a resolved active coach
-  const showCoachBlock =
-    user.planType === "COACHING" &&
-    user.coachStatus === "ACTIVE" &&
-    !!activeCoach
 
   const handleOpenEdit = () => {
-    setEditName(user.name)
-    setEditEmail(user.email)
+    setEditName(realName)
+    setEditEmail(realEmail)
     setSaved(false)
+    setEditError(null)
     setEditOpen(true)
   }
 
-  const handleSave = () => {
+  const handleSave = async () => {
     if (!editName.trim() || !editEmail.trim()) return
-    updateUser({ name: editName.trim(), email: editEmail.trim() })
-    setSaved(true)
-    setTimeout(() => {
-      setEditOpen(false)
-      setSaved(false)
-    }, 1200)
+
+    setSaving(true)
+    setEditError(null)
+
+    const nameParts = editName.trim().split(" ")
+    const firstName = nameParts[0] ?? ""
+    const lastName = nameParts.slice(1).join(" ")
+
+    try {
+      const res = await fetch("/api/profile", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ firstName, lastName, email: editEmail.trim() }),
+      })
+
+      if (!res.ok) {
+        if (res.status === 409) {
+          setEditError("Email ya en uso")
+        } else {
+          setEditError("Error al guardar. Intenta de nuevo.")
+        }
+        setSaving(false)
+        return
+      }
+
+      // Fire-and-forget: don't block the UI on profile refresh
+      refreshProfile().catch((e) => console.error("refreshProfile failed:", e))
+
+      setSaving(false)
+      setSaved(true)
+      setTimeout(() => {
+        setEditOpen(false)
+        setSaved(false)
+      }, 1200)
+    } catch {
+      setEditError("Error de conexión. Intenta de nuevo.")
+      setSaving(false)
+    }
   }
 
   return (
@@ -370,17 +465,17 @@ export function ProfileView() {
         <CardContent className="py-6">
           <div className="flex items-center gap-4">
             <div className="flex items-center justify-center w-16 h-16 rounded-full bg-primary text-primary-foreground text-xl font-bold">
-              {user.avatar}
+              {realAvatar}
             </div>
             <div className="flex-1 min-w-0">
-              <h2 className="text-xl font-bold text-foreground">{user.name}</h2>
+              <h2 className="text-xl font-bold text-foreground">{realName}</h2>
               <div className="flex items-center gap-1.5 text-sm text-muted-foreground mt-0.5">
                 <Mail className="w-3.5 h-3.5" />
-                <span>{user.email}</span>
+                <span>{realEmail}</span>
               </div>
               <div className="flex items-center gap-1.5 text-xs text-muted-foreground mt-1">
                 <CalendarIcon className="w-3.5 h-3.5" />
-                <span>Miembro desde {formatDateLong(user.memberSince)}</span>
+                <span>Miembro desde {formatMemberSince(profile?.created_at)}</span>
               </div>
             </div>
             {/* Edit button */}
@@ -456,11 +551,17 @@ export function ProfileView() {
                         />
                       </div>
                     </div>
+                    {editError && (
+                      <Alert variant="destructive">
+                        <AlertDescription>{editError}</AlertDescription>
+                      </Alert>
+                    )}
                     <DialogFooter className="flex-row gap-2 sm:justify-end">
                       <Button
                         variant="outline"
                         className="flex-1 sm:flex-none bg-transparent"
                         onClick={() => setEditOpen(false)}
+                        disabled={saving}
                       >
                         <X className="w-4 h-4 mr-1.5" />
                         Cancelar
@@ -468,9 +569,13 @@ export function ProfileView() {
                       <Button
                         className="flex-1 sm:flex-none"
                         onClick={handleSave}
-                        disabled={!editName.trim() || !editEmail.trim()}
+                        disabled={!editName.trim() || !editEmail.trim() || saving}
                       >
-                        <Check className="w-4 h-4 mr-1.5" />
+                        {saving ? (
+                          <Loader2 className="w-4 h-4 mr-1.5 animate-spin" />
+                        ) : (
+                          <Check className="w-4 h-4 mr-1.5" />
+                        )}
                         Guardar
                       </Button>
                     </DialogFooter>
@@ -483,7 +588,7 @@ export function ProfileView() {
       </Card>
 
       {/* Mi entrenador — visible solo si hay un consent ACTIVE con un entrenador */}
-      {showCoachBlock && activeCoach && (
+      {activeConsent?.trainer && (
         <Card className="border border-primary/20 bg-primary/5">
           <CardHeader className="pb-2">
             <CardTitle className="text-sm font-semibold flex items-center gap-2">
@@ -493,30 +598,34 @@ export function ProfileView() {
           </CardHeader>
           <CardContent className="flex flex-col gap-3">
             <div className="flex items-center gap-3">
-              <div className="flex items-center justify-center w-10 h-10 rounded-full bg-primary text-primary-foreground text-xs font-bold">
-                {activeCoach.avatar}
+              <div className="h-10 w-10 rounded-full bg-primary/20 flex items-center justify-center text-primary font-bold text-sm">
+                {activeConsent.trainer.avatar}
               </div>
               <div>
-                <p className="text-sm font-semibold text-foreground">{activeCoach.name}</p>
-                <p className="text-xs text-muted-foreground">{activeCoach.specialty}</p>
+                <p className="font-semibold text-sm">{activeConsent.trainer.name}</p>
+                {(() => {
+                  const t = trainers.find((t) => t.id === activeConsent.trainer?.id)
+                  return t?.email ? <p className="text-xs text-muted-foreground">{t.email}</p> : null
+                })()}
               </div>
             </div>
-            <div className="flex items-center gap-2 text-xs text-muted-foreground">
-              <Phone className="w-3.5 h-3.5" /> {activeCoach.phone}
-            </div>
-            <div className="flex items-center gap-2 text-xs text-muted-foreground">
-              <Mail className="w-3.5 h-3.5" /> {activeCoach.email}
-            </div>
-            <div className="mt-1">
-              <p className="text-xs font-medium text-foreground mb-1 flex items-center gap-1">
-                <Clock className="w-3.5 h-3.5" /> Disponibilidad
-              </p>
-              {activeCoach.availability.map((slot, i) => (
-                <p key={i} className="text-xs text-muted-foreground ml-5">
-                  {slot.day}: {slot.hours}
-                </p>
-              ))}
-            </div>
+            {(() => {
+              const t = trainers.find((t) => t.id === activeConsent.trainer?.id)
+              return (
+                <>
+                  {t?.phone && (
+                    <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                      <Phone className="w-3 h-3" /> {t.phone}
+                    </div>
+                  )}
+                  {t?.email && (
+                    <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                      <Mail className="w-3 h-3" /> {t.email}
+                    </div>
+                  )}
+                </>
+              )
+            })()}
           </CardContent>
         </Card>
       )}
@@ -528,7 +637,7 @@ export function ProfileView() {
             <div className="flex items-center justify-center w-10 h-10 rounded-lg bg-accent/15 mb-2">
               <Flame className="w-5 h-5 text-accent" />
             </div>
-            <p className="text-2xl font-bold text-foreground">{user.scanStreak}</p>
+            <p className="text-2xl font-bold text-foreground">{userStats?.current_streak ?? 0}</p>
             <p className="text-xs text-muted-foreground">Racha</p>
           </CardContent>
         </Card>
@@ -537,7 +646,7 @@ export function ProfileView() {
             <div className="flex items-center justify-center w-10 h-10 rounded-lg bg-primary/10 mb-2">
               <Zap className="w-5 h-5 text-primary" />
             </div>
-            <p className="text-2xl font-bold text-foreground">{formatNumber(user.totalPoints)}</p>
+            <p className="text-2xl font-bold text-foreground">{formatNumber(userStats?.total_points ?? 0)}</p>
             <p className="text-xs text-muted-foreground">Puntos</p>
           </CardContent>
         </Card>
@@ -546,7 +655,7 @@ export function ProfileView() {
             <div className="flex items-center justify-center w-10 h-10 rounded-lg bg-primary/10 mb-2">
               <Dumbbell className="w-5 h-5 text-primary" />
             </div>
-            <p className="text-2xl font-bold text-foreground">{user.payment.plan}</p>
+            <p className="text-2xl font-bold text-foreground">{formatPlanType(membership?.plan_type)}</p>
             <p className="text-xs text-muted-foreground">Plan</p>
           </CardContent>
         </Card>
@@ -627,7 +736,7 @@ export function ProfileView() {
       </Card>
 
       {/* Compartir con entrenador (USER only) */}
-      {authUser?.role === "USER" && (
+      {authUser?.role === "athlete" && (
         <Card className="border border-border">
           <CardHeader className="pb-2">
             <div className="flex items-center justify-between">
@@ -812,7 +921,7 @@ export function ProfileView() {
                         </div>
                         <div>
                           <p className="text-sm font-semibold text-foreground">
-                            {consent.trainer?.name || "Entrenador"}
+                            {consent.trainer?.name ?? "Entrenador"}
                           </p>
                           <p className="text-[10px] text-muted-foreground">
                             Desde {formatDateLong(consent.created_at)}
@@ -946,7 +1055,7 @@ export function ProfileView() {
                         </div>
                         <div>
                           <p className="text-sm font-semibold text-foreground">
-                            {consent.trainer?.name || "Entrenador"}
+                            {consent.trainer?.name ?? "Entrenador"}
                           </p>
                           <p className="text-[10px] text-muted-foreground">
                             Desde {formatDateLong(consent.created_at)}
@@ -1101,44 +1210,32 @@ export function ProfileView() {
         <CardContent className="flex flex-col gap-2">
           <div className="flex items-center justify-between px-3 py-2.5 bg-muted rounded-lg">
             <span className="text-sm text-muted-foreground">Nombre</span>
-            <span className="text-sm font-medium text-foreground">{user.name}</span>
+            <span className="text-sm font-medium text-foreground">{realName}</span>
           </div>
           <div className="flex items-center justify-between px-3 py-2.5 bg-muted rounded-lg">
             <span className="text-sm text-muted-foreground">Email</span>
-            <span className="text-sm font-medium text-foreground">{user.email}</span>
+            <span className="text-sm font-medium text-foreground">{realEmail}</span>
           </div>
           <div className="flex items-center justify-between px-3 py-2.5 bg-muted rounded-lg">
             <span className="text-sm text-muted-foreground">ID</span>
             <Badge variant="secondary" className="font-mono text-xs">
-              {user.id}
+              {profile?.id ?? authUser?.id ?? '—'}
             </Badge>
           </div>
           <div className="flex items-center justify-between px-3 py-2.5 bg-muted rounded-lg">
             <span className="text-sm text-muted-foreground">Plan actual</span>
-            <span className="text-sm font-medium text-foreground">{user.payment.plan}</span>
+            <span className="text-sm font-medium text-foreground">{formatPlanType(membership?.plan_type)}</span>
           </div>
           <div className="flex items-center justify-between px-3 py-2.5 bg-muted rounded-lg">
             <span className="text-sm text-muted-foreground">Estado pago</span>
-            <Badge
-              className={`border-0 text-xs ${
-                user.payment.status === "al_dia"
-                  ? "bg-primary/10 text-primary"
-                  : user.payment.status === "por_vencer"
-                    ? "bg-accent/15 text-accent"
-                    : "bg-destructive/10 text-destructive"
-              }`}
-            >
-              {user.payment.status === "al_dia"
-                ? "Al dia"
-                : user.payment.status === "por_vencer"
-                  ? "Por vencer"
-                  : "Vencido"}
+            <Badge className={`border-0 text-xs ${getPaymentStatusClass(membership?.status)}`}>
+              {getPaymentStatusLabel(membership?.status)}
             </Badge>
           </div>
           <div className="flex items-center justify-between px-3 py-2.5 bg-muted rounded-lg">
             <span className="text-sm text-muted-foreground">Rol</span>
             <Badge className="bg-primary/10 text-primary border-0 text-xs">
-              {authUser?.role || "USER"}
+              {getRoleLabel(authUser?.role)}
             </Badge>
           </div>
         </CardContent>
@@ -1148,7 +1245,7 @@ export function ProfileView() {
       <Button
         variant="outline"
         className="w-full bg-transparent text-destructive border-destructive/30 hover:bg-destructive/10"
-        onClick={logout}
+        onClick={signOut}
       >
         <LogOut className="w-4 h-4 mr-2" />
         Cerrar sesion

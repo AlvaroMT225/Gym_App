@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useMemo } from "react"
+import { useState, useMemo, useEffect } from "react"
 import {
   BookOpen,
   Search,
@@ -16,73 +16,209 @@ import {
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
-import { tutorials, machines } from "@/lib/mock-data"
 import { useStore } from "@/lib/store"
+import { translateMuscleGroups } from "@/lib/utils"
 
-const commonErrors: Record<string, string[]> = {
-  "SMITH-01": [
-    "Bloquear las rodillas en extension completa",
-    "Arquear excesivamente la espalda baja",
-    "Usar peso sin tener el seguro puesto",
-  ],
-  "POLEA-01": [
-    "Usar momentum en lugar de control muscular",
-    "No mantener los codos pegados al cuerpo en remo",
-    "Tirar con los brazos en vez de la espalda",
-  ],
-  "APERT-01": [
-    "Abrir demasiado y sobrecargar el hombro",
-    "No controlar la fase excentrica (regreso)",
-    "Elevar los hombros durante el movimiento",
-  ],
-  "ABDUC-01": [
-    "Levantar la cadera del asiento",
-    "Usar peso excesivo perdiendo rango de movimiento",
-    "Movimientos bruscos en vez de controlados",
-  ],
-  "CUADR-01": [
-    "Hiperextender la rodilla al final del movimiento",
-    "Levantar la espalda del respaldo",
-    "No bajar completamente (rango parcial)",
-  ],
-  "FEMOR-01": [
-    "Levantar la cadera del banco",
-    "Usar impulso para subir el peso",
-    "No llegar al rango completo de flexion",
-  ],
+interface TutorialListItem {
+  machineId: string
+  machineName: string
+  muscles: string[]
+  tutorialId: string
+  title: string
+}
+
+interface TutorialListResponse {
+  items?: TutorialListItem[]
+}
+
+interface TutorialDetailItem {
+  machineId: string
+  machineName: string
+  muscles: string[]
+  tutorialId: string
+  title: string
+  steps: string[]
+  safetyTips: string[]
+  commonErrors: string[]
+  videoUrl: string | null
+}
+
+interface TutorialDetailResponse {
+  item?: TutorialDetailItem
 }
 
 export function TutorialsView() {
-  const { tutorialsSeen, markTutorialSeen } = useStore()
+  const { tutorialsSeen, loadTutorialProgress, markTutorialSeen } = useStore()
+  const [items, setItems] = useState<TutorialListItem[]>([])
+  const [listLoading, setListLoading] = useState(true)
+  const [listError, setListError] = useState<string | null>(null)
+  const [listRequestKey, setListRequestKey] = useState(0)
   const [searchQuery, setSearchQuery] = useState("")
   const [selectedMachine, setSelectedMachine] = useState<string | null>(null)
+  const [selectedDetail, setSelectedDetail] = useState<TutorialDetailItem | null>(null)
+  const [detailLoading, setDetailLoading] = useState(false)
+  const [detailError, setDetailError] = useState<string | null>(null)
+  const [detailRequestKey, setDetailRequestKey] = useState(0)
+  const [markingSeen, setMarkingSeen] = useState(false)
 
-  const filteredMachines = useMemo(() => {
-    if (!searchQuery.trim()) return machines
+  useEffect(() => {
+    const controller = new AbortController()
+
+    const loadList = async () => {
+      setListLoading(true)
+      setListError(null)
+
+      try {
+        await loadTutorialProgress()
+
+        const response = await fetch("/api/client/tutorials", {
+          method: "GET",
+          cache: "no-store",
+          signal: controller.signal,
+        })
+
+        if (!response.ok) {
+          throw new Error("tutorials_list_fetch_failed")
+        }
+
+        const payload = (await response.json()) as TutorialListResponse
+        setItems(payload.items ?? [])
+      } catch {
+        if (controller.signal.aborted) return
+        setItems([])
+        setListError("No fue posible cargar tutoriales")
+      } finally {
+        if (!controller.signal.aborted) {
+          setListLoading(false)
+        }
+      }
+    }
+
+    void loadList()
+
+    return () => controller.abort()
+  }, [loadTutorialProgress, listRequestKey])
+
+  useEffect(() => {
+    const controller = new AbortController()
+
+    if (!selectedMachine) {
+      setSelectedDetail(null)
+      setDetailError(null)
+      setDetailLoading(false)
+      return () => controller.abort()
+    }
+
+    const loadDetail = async () => {
+      setDetailLoading(true)
+      setDetailError(null)
+
+      try {
+        const response = await fetch(`/api/client/tutorials/${encodeURIComponent(selectedMachine)}`, {
+          method: "GET",
+          cache: "no-store",
+          signal: controller.signal,
+        })
+
+        if (!response.ok) {
+          throw new Error("tutorial_detail_fetch_failed")
+        }
+
+        const payload = (await response.json()) as TutorialDetailResponse
+        if (!payload.item) {
+          throw new Error("tutorial_detail_empty")
+        }
+
+        setSelectedDetail(payload.item)
+      } catch {
+        if (controller.signal.aborted) return
+        setSelectedDetail(null)
+        setDetailError("No fue posible cargar este tutorial")
+      } finally {
+        if (!controller.signal.aborted) {
+          setDetailLoading(false)
+        }
+      }
+    }
+
+    void loadDetail()
+
+    return () => controller.abort()
+  }, [selectedMachine, detailRequestKey])
+
+  const filteredItems = useMemo(() => {
+    if (!searchQuery.trim()) return items
     const q = searchQuery.toLowerCase()
-    return machines.filter(
-      (m) =>
-        m.name.toLowerCase().includes(q) ||
-        m.muscles.some((mu) => mu.toLowerCase().includes(q))
+    return items.filter(
+      (item) =>
+        item.machineName.toLowerCase().includes(q) ||
+        item.muscles.some((muscle) => muscle.toLowerCase().includes(q))
     )
-  }, [searchQuery])
+  }, [items, searchQuery])
 
-  const selectedTutorial = useMemo(() => {
-    if (!selectedMachine) return null
-    return tutorials.find((t) => t.machineId === selectedMachine) || null
-  }, [selectedMachine])
+  const selectedItem = useMemo(
+    () => items.find((item) => item.machineId === selectedMachine) ?? null,
+    [items, selectedMachine]
+  )
 
-  const machine = selectedMachine ? machines.find((m) => m.id === selectedMachine) : null
+  const seenCount = Object.values(tutorialsSeen).filter(Boolean).length
+  const totalCount = items.length
 
-  const seenCount = Object.keys(tutorialsSeen).filter((k) => tutorialsSeen[k]).length
+  const handleSelectMachine = (machineId: string) => {
+    setSelectedMachine(machineId)
+    setSelectedDetail(null)
+    setDetailError(null)
+    setDetailRequestKey(0)
+  }
 
-  if (selectedMachine && selectedTutorial && machine) {
+  const handleMarkSeen = async () => {
+    if (!selectedMachine) return
+    const tutorialId = selectedDetail?.tutorialId ?? selectedItem?.tutorialId
+    setMarkingSeen(true)
+    await markTutorialSeen(selectedMachine, tutorialId)
+    setMarkingSeen(false)
+  }
+
+  if (selectedMachine) {
     const isSeen = tutorialsSeen[selectedMachine] || false
-    const errors = commonErrors[selectedMachine] || [
-      "Usar peso excesivo sin tecnica correcta",
-      "No calentar antes de usar la maquina",
-      "Movimientos bruscos sin control",
-    ]
+
+    if (detailLoading || !selectedDetail) {
+      if (detailLoading) {
+        return (
+          <div className="flex flex-col gap-4">
+            <Button variant="ghost" size="sm" onClick={() => setSelectedMachine(null)} className="self-start -ml-2">
+              <ArrowLeft className="w-4 h-4 mr-1" />
+              Volver a lista
+            </Button>
+            <Card className="border border-border">
+              <CardContent className="py-10 text-center">
+                <p className="text-sm text-muted-foreground">Cargando tutorial...</p>
+              </CardContent>
+            </Card>
+          </div>
+        )
+      }
+
+      return (
+        <div className="flex flex-col gap-4">
+          <Button variant="ghost" size="sm" onClick={() => setSelectedMachine(null)} className="self-start -ml-2">
+            <ArrowLeft className="w-4 h-4 mr-1" />
+            Volver a lista
+          </Button>
+          <Card className="border border-border">
+            <CardContent className="py-10 text-center">
+              <AlertTriangle className="w-10 h-10 text-destructive mx-auto mb-3" />
+              <p className="text-sm text-muted-foreground mb-4">
+                {detailError ?? "Tutorial no disponible"}
+              </p>
+              <Button variant="outline" onClick={() => setDetailRequestKey((prev) => prev + 1)}>
+                Reintentar
+              </Button>
+            </CardContent>
+          </Card>
+        </div>
+      )
+    }
 
     return (
       <div className="flex flex-col gap-4">
@@ -100,26 +236,42 @@ export function TutorialsView() {
             </div>
             <div className="flex-1 min-w-0">
               <div className="flex items-center gap-2 flex-wrap">
-                <h2 className="text-lg font-bold text-foreground">{machine.name}</h2>
+                <h2 className="text-lg font-bold text-foreground">{selectedDetail.machineName}</h2>
                 <Badge className={`border-0 text-xs ${isSeen ? "bg-primary/10 text-primary" : "bg-accent/15 text-accent"}`}>
                   {isSeen ? "Visto" : "Pendiente"}
                 </Badge>
               </div>
-              <p className="text-xs text-muted-foreground">{machine.muscles.join(", ")}</p>
+              <p className="text-xs text-muted-foreground">{translateMuscleGroups(selectedDetail.muscles)}</p>
             </div>
           </CardContent>
         </Card>
 
         {/* Video placeholder */}
         <Card className="border border-border overflow-hidden">
-          <div className="relative bg-foreground/5 flex items-center justify-center h-48">
-            <div className="flex flex-col items-center gap-2 text-muted-foreground">
-              <div className="flex items-center justify-center w-14 h-14 rounded-full bg-primary/15">
-                <Play className="w-7 h-7 text-primary ml-0.5" />
+          {selectedDetail.videoUrl ? (
+            <a
+              href={selectedDetail.videoUrl}
+              target="_blank"
+              rel="noreferrer"
+              className="relative bg-foreground/5 flex items-center justify-center h-48 hover:bg-foreground/10 transition-colors"
+            >
+              <div className="flex flex-col items-center gap-2 text-muted-foreground">
+                <div className="flex items-center justify-center w-14 h-14 rounded-full bg-primary/15">
+                  <Play className="w-7 h-7 text-primary ml-0.5" />
+                </div>
+                <p className="text-xs">Ver video tutorial</p>
               </div>
-              <p className="text-xs">Video tutorial (demo)</p>
+            </a>
+          ) : (
+            <div className="relative bg-foreground/5 flex items-center justify-center h-48">
+              <div className="flex flex-col items-center gap-2 text-muted-foreground">
+                <div className="flex items-center justify-center w-14 h-14 rounded-full bg-primary/15">
+                  <Play className="w-7 h-7 text-primary ml-0.5" />
+                </div>
+                <p className="text-xs">Video no disponible</p>
+              </div>
             </div>
-          </div>
+          )}
         </Card>
 
         {/* Technique steps */}
@@ -132,7 +284,7 @@ export function TutorialsView() {
           </CardHeader>
           <CardContent>
             <ol className="flex flex-col gap-2.5">
-              {selectedTutorial.steps.map((step, i) => (
+              {selectedDetail.steps.map((step, i) => (
                 <li key={`step-${i}`} className="flex items-start gap-3">
                   <span className="flex items-center justify-center w-6 h-6 rounded-full bg-primary/10 text-primary text-xs font-bold shrink-0 mt-0.5">
                     {i + 1}
@@ -154,7 +306,8 @@ export function TutorialsView() {
           </CardHeader>
           <CardContent>
             <ul className="flex flex-col gap-2">
-              {selectedTutorial.safetyTips.map((tip, i) => (
+              {(selectedDetail.safetyTips.length > 0 ? selectedDetail.safetyTips : ["Sin recomendaciones de seguridad registradas"])
+                .map((tip, i) => (
                 <li key={`safety-${i}`} className="flex items-start gap-2">
                   <AlertTriangle className="w-4 h-4 text-destructive shrink-0 mt-0.5" />
                   <p className="text-sm text-foreground">{tip}</p>
@@ -174,7 +327,8 @@ export function TutorialsView() {
           </CardHeader>
           <CardContent>
             <ul className="flex flex-col gap-2">
-              {errors.map((err, i) => (
+              {(selectedDetail.commonErrors.length > 0 ? selectedDetail.commonErrors : ["Sin errores comunes registrados"])
+                .map((err, i) => (
                 <li key={`err-${i}`} className="flex items-start gap-2">
                   <XCircle className="w-4 h-4 text-accent shrink-0 mt-0.5" />
                   <p className="text-sm text-foreground">{err}</p>
@@ -186,12 +340,36 @@ export function TutorialsView() {
 
         {/* Mark as seen */}
         {!isSeen && (
-          <Button onClick={() => markTutorialSeen(selectedMachine)} size="lg" className="w-full">
+          <Button onClick={handleMarkSeen} size="lg" className="w-full" disabled={markingSeen}>
             <CheckCircle2 className="w-5 h-5 mr-2" />
-            Marcar como visto
+            {markingSeen ? "Guardando..." : "Marcar como visto"}
           </Button>
         )}
       </div>
+    )
+  }
+
+  if (listLoading) {
+    return (
+      <Card className="border border-border">
+        <CardContent className="py-10 text-center">
+          <p className="text-sm text-muted-foreground">Cargando tutoriales...</p>
+        </CardContent>
+      </Card>
+    )
+  }
+
+  if (listError) {
+    return (
+      <Card className="border border-border">
+        <CardContent className="py-10 text-center">
+          <AlertTriangle className="w-10 h-10 text-destructive mx-auto mb-3" />
+          <p className="text-sm text-muted-foreground mb-4">{listError}</p>
+          <Button variant="outline" onClick={() => setListRequestKey((prev) => prev + 1)}>
+            Reintentar
+          </Button>
+        </CardContent>
+      </Card>
     )
   }
 
@@ -205,7 +383,7 @@ export function TutorialsView() {
             <BookOpen className="w-5 h-5 text-primary" />
           </div>
           <div className="flex-1">
-            <p className="text-sm font-medium text-foreground">{seenCount} de {machines.length} tutoriales vistos</p>
+            <p className="text-sm font-medium text-foreground">{seenCount} de {totalCount} tutoriales vistos</p>
             <p className="text-xs text-muted-foreground">Completa todos los tutoriales para un entrenamiento seguro</p>
           </div>
         </CardContent>
@@ -225,13 +403,23 @@ export function TutorialsView() {
 
       {/* Machine list */}
       <div className="flex flex-col gap-2">
-        {filteredMachines.map((m) => {
-          const isSeen = tutorialsSeen[m.id] || false
+        {filteredItems.length === 0 && (
+          <Card className="border border-border">
+            <CardContent className="py-8 text-center">
+              <p className="text-sm text-muted-foreground">
+                {items.length === 0 ? "No hay tutoriales disponibles." : "No se encontraron tutoriales para esa búsqueda."}
+              </p>
+            </CardContent>
+          </Card>
+        )}
+
+        {filteredItems.map((item) => {
+          const isSeen = tutorialsSeen[item.machineId] || false
           return (
             <button
-              key={m.id}
+              key={item.machineId}
               type="button"
-              onClick={() => setSelectedMachine(m.id)}
+              onClick={() => handleSelectMachine(item.machineId)}
               className="text-left"
             >
               <Card className="group cursor-pointer border border-border hover:border-primary/40 hover:shadow-md transition-all duration-200">
@@ -240,8 +428,8 @@ export function TutorialsView() {
                     <Dumbbell className="w-5 h-5 text-primary" />
                   </div>
                   <div className="flex-1 min-w-0">
-                    <h4 className="text-sm font-semibold text-foreground">{m.name}</h4>
-                    <p className="text-xs text-muted-foreground">{m.muscles.join(", ")}</p>
+                    <h4 className="text-sm font-semibold text-foreground">{item.machineName}</h4>
+                    <p className="text-xs text-muted-foreground">{translateMuscleGroups(item.muscles)}</p>
                   </div>
                   {isSeen ? (
                     <Badge className="bg-primary/10 text-primary border-0 text-xs shrink-0">

@@ -1,4 +1,4 @@
-import type { Role } from "@/lib/auth/types"
+import type { AppRole as Role } from "@/lib/auth/types"
 
 export type ConsentStatus = "ACTIVE" | "REVOKED" | "EXPIRED"
 

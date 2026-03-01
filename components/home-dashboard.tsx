@@ -1,5 +1,6 @@
 "use client"
 
+import { useState, useEffect } from "react"
 import Link from "next/link"
 import {
   ScanLine,
@@ -25,7 +26,6 @@ import {
   challenges,
   promos,
   achievements,
-  gymSchedule,
 } from "@/lib/mock-data"
 import { formatNumber, formatDateLong } from "@/lib/utils"
 import { ScanCtaBanner } from "@/components/scan-cta-banner"
@@ -34,6 +34,55 @@ import { useAuth } from "@/lib/auth/auth-context"
 
 export function HomeDashboard() {
   const { user: authUser } = useAuth()
+  type UserStats = { currentStreak: number; totalPoints: number }
+  type Promotion = {
+    id: string
+    title: string
+    description: string | null
+    discount_type: string
+    discount_value: number
+    code: string | null
+    status: string
+    starts_at: string | null
+    expires_at: string | null
+  }
+  type MembershipStatus = "pending" | "active" | "inactive" | "suspended" | "expired"
+  type PlanType = "basic" | "premium" | "vip" | "custom"
+  type PaymentStatus = "pending" | "paid" | "overdue" | "cancelled" | "refunded"
+  type PaymentMethod = "cash" | "card" | "transfer" | "app"
+  type UserMembershipResponse = {
+    membership:
+      | {
+          id: string
+          planType: PlanType
+          status: MembershipStatus
+          startDate: string | null
+          endDate: string | null
+          autoRenew: boolean
+          pricePaid: number | null
+        }
+      | null
+    nextPayment:
+      | {
+          id: string
+          amount: number
+          status: PaymentStatus
+          dueDate: string | null
+          paidAt: string | null
+          method: PaymentMethod | null
+          referenceCode: string | null
+        }
+      | null
+  }
+  const [userStats, setUserStats] = useState<UserStats>({
+    currentStreak: 0,
+    totalPoints: 0,
+  })
+  const [activePromo, setActivePromo] = useState<Promotion | null>(null)
+  const [membershipData, setMembershipData] = useState<UserMembershipResponse>({
+    membership: null,
+    nextPayment: null,
+  })
   const todaySets = setHistory.filter(
     (s) =>
       new Date(s.date).toDateString() === new Date("2026-02-09").toDateString()
@@ -41,7 +90,57 @@ export function HomeDashboard() {
   const weeklyVolume = setHistory.reduce((acc, s) => acc + s.weight * s.reps, 0)
   const unlockedAchievements = achievements.filter((a) => a.unlocked)
   const activeChallenge = challenges[0]
-  const activePromo = promos[0]
+
+  type ScheduleEntry = { day: string; open: string | null; close: string | null; isClosed: boolean }
+  const [gymSchedule, setGymSchedule] = useState<ScheduleEntry[]>([])
+
+  useEffect(() => {
+    fetch("/api/gym/schedule")
+      .then((r) => r.json())
+      .then((data) => {
+        if (data.schedule) setGymSchedule(data.schedule)
+      })
+      .catch(console.error)
+  }, [])
+
+  useEffect(() => {
+    fetch("/api/user/stats")
+      .then((r) => (r.ok ? r.json() : { currentStreak: 0, totalPoints: 0 }))
+      .then((data: Partial<UserStats>) => {
+        setUserStats({
+          currentStreak: Number(data.currentStreak ?? 0),
+          totalPoints: Number(data.totalPoints ?? 0),
+        })
+      })
+      .catch(() => {
+        setUserStats({ currentStreak: 0, totalPoints: 0 })
+      })
+  }, [])
+
+  useEffect(() => {
+    fetch("/api/promotions/active")
+      .then((r) => (r.ok ? r.json() : { promotion: null }))
+      .then((data: { promotion?: Promotion | null }) => {
+        setActivePromo(data.promotion ?? null)
+      })
+      .catch(() => {
+        setActivePromo(null)
+      })
+  }, [])
+
+  useEffect(() => {
+    fetch("/api/user/membership")
+      .then((r) => (r.ok ? r.json() : { membership: null, nextPayment: null }))
+      .then((data: Partial<UserMembershipResponse>) => {
+        setMembershipData({
+          membership: data.membership ?? null,
+          nextPayment: data.nextPayment ?? null,
+        })
+      })
+      .catch(() => {
+        setMembershipData({ membership: null, nextPayment: null })
+      })
+  }, [])
 
   // Gym schedule logic
   // Strip accents so "Miercoles" matches "miércoles" from toLocaleDateString
@@ -61,7 +160,7 @@ export function HomeDashboard() {
   let minutesUntilOpen = 0
   let opensAt = ""
   let closesAt = ""
-  if (todaySchedule) {
+  if (todaySchedule && !todaySchedule.isClosed && todaySchedule.open && todaySchedule.close) {
     const [openH, openM] = todaySchedule.open.split(":").map(Number)
     const [closeH, closeM] = todaySchedule.close.split(":").map(Number)
     const openMinutes = openH * 60 + openM
@@ -82,16 +181,44 @@ export function HomeDashboard() {
     return `${h}h ${m}min`
   }
 
-  const paymentStatusColors = {
-    al_dia: "bg-success/10 text-success",
-    por_vencer: "bg-accent/15 text-accent",
-    vencido: "bg-destructive/10 text-destructive",
+  const paymentStatusColors: Record<string, string> = {
+    active: "bg-success/10 text-success",
+    pending: "bg-accent/15 text-accent",
+    overdue: "bg-destructive/10 text-destructive",
+    expired: "bg-destructive/10 text-destructive",
+    inactive: "bg-muted text-muted-foreground",
+    suspended: "bg-muted text-muted-foreground",
+    paid: "bg-success/10 text-success",
+    cancelled: "bg-muted text-muted-foreground",
+    refunded: "bg-muted text-muted-foreground",
   }
-  const paymentStatusLabels = {
-    al_dia: "Al dia",
-    por_vencer: "Por vencer",
-    vencido: "Vencido",
+  const paymentStatusLabels: Record<string, string> = {
+    active: "Activo",
+    pending: "Pendiente",
+    overdue: "Vencido",
+    expired: "Expirado",
+    inactive: "Inactivo",
+    suspended: "Suspendido",
+    paid: "Pagado",
+    cancelled: "Cancelado",
+    refunded: "Reembolsado",
   }
+  const planTypeLabels: Record<PlanType, string> = {
+    basic: "Basic",
+    premium: "Premium",
+    vip: "VIP",
+    custom: "Custom",
+  }
+  const membershipStatusKey = membershipData.nextPayment?.status ?? membershipData.membership?.status ?? null
+  const membershipStatusClass = membershipStatusKey
+    ? paymentStatusColors[membershipStatusKey] ?? "bg-muted text-muted-foreground"
+    : "bg-muted text-muted-foreground"
+  const membershipStatusLabel = membershipStatusKey
+    ? paymentStatusLabels[membershipStatusKey] ?? membershipStatusKey
+    : "Sin plan"
+  const membershipPlanLabel = membershipData.membership
+    ? planTypeLabels[membershipData.membership.planType] ?? membershipData.membership.planType
+    : "Sin plan activo"
 
   return (
     <div className="px-4 py-6 lg:px-8 lg:py-8">
@@ -104,7 +231,7 @@ export function HomeDashboard() {
           Hola, {authUser?.name.split(" ")[0] || currentUser.name.split(" ")[0]}
         </h1>
         <p className="text-sm text-muted-foreground mt-1">
-          Listo para entrenar hoy. Tu racha actual es de {currentUser.scanStreak} dias.
+          Listo para entrenar hoy. Tu racha actual es de {userStats.currentStreak} dias.
         </p>
       </div>
 
@@ -115,7 +242,12 @@ export function HomeDashboard() {
           <span className={`w-2.5 h-2.5 rounded-full shrink-0 ${isOpen ? "bg-green-500 shadow-[0_0_6px_2px_rgba(34,197,94,0.4)]" : "bg-muted-foreground/50"}`} />
           <Clock className="w-4 h-4 text-muted-foreground shrink-0" />
           <div className="flex-1 min-w-0">
-            {isOpen ? (
+            {todaySchedule.isClosed ? (
+              <p className="text-sm text-foreground leading-snug">
+                <span className="font-semibold text-destructive">Cerrado</span>
+                <span className="text-muted-foreground"> · Cerrado hoy</span>
+              </p>
+            ) : isOpen ? (
               <p className="text-sm text-foreground leading-snug">
                 <span className="font-semibold text-green-600 dark:text-green-400">Abierto</span>
                 <span className="text-muted-foreground"> · Hoy {opensAt}–{closesAt}</span>
@@ -165,7 +297,7 @@ export function HomeDashboard() {
             <div className="flex items-center justify-center w-10 h-10 rounded-lg bg-accent/15 mb-2">
               <Flame className="w-5 h-5 text-accent" />
             </div>
-            <p className="text-2xl font-bold text-foreground">{currentUser.scanStreak}</p>
+            <p className="text-2xl font-bold text-foreground">{userStats.currentStreak}</p>
             <p className="text-xs text-muted-foreground">Racha de escaneo</p>
           </CardContent>
         </Card>
@@ -176,7 +308,7 @@ export function HomeDashboard() {
             <div className="flex items-center justify-center w-10 h-10 rounded-lg bg-primary/10 mb-2">
               <Zap className="w-5 h-5 text-primary" />
             </div>
-            <p className="text-2xl font-bold text-foreground">{formatNumber(currentUser.totalPoints)}</p>
+            <p className="text-2xl font-bold text-foreground">{formatNumber(userStats.totalPoints)}</p>
             <p className="text-xs text-muted-foreground">Puntos totales</p>
           </CardContent>
         </Card>
@@ -259,12 +391,18 @@ export function HomeDashboard() {
             </CardTitle>
           </CardHeader>
           <CardContent>
-            <h4 className="text-base font-semibold text-foreground">{activePromo.title}</h4>
-            <p className="text-xs text-muted-foreground mt-1">{activePromo.description}</p>
-            {activePromo.code && (
-              <Badge variant="secondary" className="mt-3 font-mono">
-                {activePromo.code}
-              </Badge>
+            {activePromo ? (
+              <>
+                <h4 className="text-base font-semibold text-foreground">{activePromo.title}</h4>
+                <p className="text-xs text-muted-foreground mt-1">{activePromo.description}</p>
+                {activePromo.code && (
+                  <Badge variant="secondary" className="mt-3 font-mono">
+                    {activePromo.code}
+                  </Badge>
+                )}
+              </>
+            ) : (
+              <p className="text-xs text-muted-foreground">No hay promos activas por ahora</p>
             )}
           </CardContent>
         </Card>
@@ -279,17 +417,16 @@ export function HomeDashboard() {
           </CardHeader>
           <CardContent>
             <div className="flex items-center gap-3">
-              <Badge
-                className={`border-0 ${paymentStatusColors[currentUser.payment.status]}`}
-              >
-                {paymentStatusLabels[currentUser.payment.status]}
-              </Badge>
+              <Badge className={`border-0 ${membershipStatusClass}`}>{membershipStatusLabel}</Badge>
               <span className="text-sm text-foreground font-medium">
-                Plan {currentUser.payment.plan}
+                Plan {membershipPlanLabel}
               </span>
             </div>
             <p className="text-xs text-muted-foreground mt-2">
-              Proximo pago: {formatDateLong(currentUser.payment.nextPayment)}
+              Proximo pago:{" "}
+              {membershipData.nextPayment
+                ? `${membershipData.nextPayment.dueDate ? formatDateLong(membershipData.nextPayment.dueDate) : "—"} (${paymentStatusLabels[membershipData.nextPayment.status] ?? membershipData.nextPayment.status})`
+                : "—"}
             </p>
           </CardContent>
         </Card>

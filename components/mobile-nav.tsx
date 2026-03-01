@@ -31,6 +31,7 @@ import { cn } from "@/lib/utils"
 import { useState } from "react"
 import { useStore } from "@/lib/store"
 import { useAuth } from "@/lib/auth/auth-context"
+import { getRoleLabel } from "@/lib/auth/role-labels"
 
 const clientBottomTabs = [
   { label: "Inicio", href: "/dashboard", icon: Home },
@@ -61,17 +62,17 @@ const trainerMenuItems = [
   { label: "Propuestas", href: "/trainer/proposals", icon: FileText },
   { label: "Plantillas", href: "/trainer/templates", icon: FolderOpen },
   { label: "Ejercicios", href: "/trainer/exercises", icon: Dumbbell },
-  { label: "Ajustes", href: "/trainer/settings", icon: Settings },
+  { label: "Perfil", href: "/trainer/settings", icon: Settings },
 ]
 
 export function MobileNav() {
   const pathname = usePathname()
   const [menuOpen, setMenuOpen] = useState(false)
   const { notifications } = useStore()
-  const { user: authUser, logout } = useAuth()
+  const { user: authUser, signOut } = useAuth()
   const unreadPromoCount = notifications.filter((n) => n.type === "promo" && !n.read).length
 
-  const isTrainer = authUser?.role === "TRAINER"
+  const isTrainer = authUser?.role === "coach"
   const bottomTabs = isTrainer ? trainerBottomTabs : clientBottomTabs
   const menuItems = isTrainer ? trainerMenuItems : clientMenuItems
 
@@ -141,10 +142,10 @@ export function MobileNav() {
                 </div>
                 <div className="flex-1 min-w-0">
                   <p className="text-sm font-medium text-foreground truncate">{authUser?.name || "Usuario"}</p>
-                  <p className="text-xs text-muted-foreground truncate">{authUser?.role || ""}</p>
+                  <p className="text-xs text-muted-foreground truncate">{getRoleLabel(authUser?.role)}</p>
                 </div>
                 <button
-                  onClick={() => { logout(); setMenuOpen(false) }}
+                  onClick={() => { signOut(); setMenuOpen(false) }}
                   className="p-1.5 rounded-lg hover:bg-muted text-muted-foreground transition-colors"
                   aria-label="Cerrar sesion"
                 >

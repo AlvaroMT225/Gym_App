@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useMemo, useCallback } from "react"
+import { useState, useMemo, useCallback, useEffect } from "react"
 import { useRouter } from "next/navigation"
 import {
   Dumbbell,
@@ -19,12 +19,94 @@ import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from "@/components/ui/sheet"
-import { cn } from "@/lib/utils"
-import {
-  type Exercise,
-  getExercisesByTab,
-  getSectionsForTab,
-} from "@/lib/exercises-data"
+import { cn, MUSCLE_GROUP_LABELS } from "@/lib/utils"
+
+interface Exercise {
+  id: string
+  name: string
+  section: string
+  tab: "upper" | "lower"
+  muscles: string[]
+  equipment: string
+  difficulty: "principiante" | "intermedio" | "avanzado"
+  sets?: string
+  reps?: string
+  notes?: string
+}
+
+interface MachineCatalogItem {
+  id: string
+  name: string
+  description: string | null
+  muscle_groups: string[] | null
+  equipment_type: string
+  status: string
+  location: string | null
+  image_url: string | null
+}
+
+const upperSectionOrder = ["Multifuncional", "Espalda", "Pecho", "Hombros", "Brazos"]
+const lowerSectionOrder = ["Multifuncional", "Cuadriceps", "Gluteos", "Core"]
+
+const upperMuscleGroups = new Set(["chest", "back", "shoulders", "biceps", "triceps", "arms"])
+const lowerMuscleGroups = new Set(["legs", "glutes", "core"])
+
+const equipmentLabels: Record<string, string> = {
+  machine: "Maquina",
+  free_weight: "Peso libre",
+  cable: "Polea",
+  bodyweight: "Peso corporal",
+  cardio: "Cardio",
+  resistance_band: "Banda elastica",
+}
+
+function normalizeMuscles(muscleGroups: string[] | null): string[] {
+  const normalized = (muscleGroups ?? []).map((group) => MUSCLE_GROUP_LABELS[group] ?? group.replace(/_/g, " "))
+  return normalized.length > 0 ? normalized : ["General"]
+}
+
+function resolveTab(muscleGroups: string[] | null): "upper" | "lower" {
+  const source = muscleGroups ?? []
+  const hasUpper = source.some((group) => upperMuscleGroups.has(group))
+  const hasLower = source.some((group) => lowerMuscleGroups.has(group))
+  if (hasLower && !hasUpper) return "lower"
+  return "upper"
+}
+
+function resolveSection(tab: "upper" | "lower", muscleGroups: string[] | null): string {
+  const source = muscleGroups ?? []
+  if (tab === "lower") {
+    if (source.includes("legs")) return "Cuadriceps"
+    if (source.includes("glutes")) return "Gluteos"
+    if (source.includes("core")) return "Core"
+    return "Multifuncional"
+  }
+
+  if (source.includes("back")) return "Espalda"
+  if (source.includes("chest")) return "Pecho"
+  if (source.includes("shoulders")) return "Hombros"
+  if (source.some((group) => group === "biceps" || group === "triceps" || group === "arms")) return "Brazos"
+  return "Multifuncional"
+}
+
+function resolveDifficulty(equipmentType: string): Exercise["difficulty"] {
+  if (equipmentType === "free_weight") return "avanzado"
+  if (equipmentType === "cable" || equipmentType === "resistance_band") return "intermedio"
+  return "principiante"
+}
+
+function mapMachineToExercise(machine: MachineCatalogItem): Exercise {
+  const tab = resolveTab(machine.muscle_groups)
+  return {
+    id: machine.id,
+    name: machine.name,
+    section: resolveSection(tab, machine.muscle_groups),
+    tab,
+    muscles: normalizeMuscles(machine.muscle_groups),
+    equipment: equipmentLabels[machine.equipment_type] ?? machine.equipment_type,
+    difficulty: resolveDifficulty(machine.equipment_type),
+  }
+}
 
 const difficultyConfig = {
   principiante: { label: "Principiante", className: "bg-primary/10 text-primary" },
@@ -215,6 +297,43 @@ export function ExercisesView() {
   const [quickList, setQuickList] = useState<QuickListItem[]>([])
   const [sidebarOpen, setSidebarOpen] = useState(false)
   const [collapsedSections, setCollapsedSections] = useState<Set<string>>(new Set())
+  const [catalogExercises, setCatalogExercises] = useState<Exercise[]>([])
+  const [loadingCatalog, setLoadingCatalog] = useState(true)
+  const [catalogError, setCatalogError] = useState<string | null>(null)
+
+  useEffect(() => {
+    const controller = new AbortController()
+
+    const loadCatalog = async () => {
+      setLoadingCatalog(true)
+      setCatalogError(null)
+
+      try {
+        const response = await fetch("/api/machines/catalog", {
+          method: "GET",
+          cache: "no-store",
+          signal: controller.signal,
+        })
+        if (!response.ok) throw new Error("catalog_fetch_failed")
+
+        const data = (await response.json()) as { machines?: MachineCatalogItem[] }
+        const mapped = (data.machines ?? []).map(mapMachineToExercise)
+        setCatalogExercises(mapped)
+      } catch {
+        if (controller.signal.aborted) return
+        setCatalogExercises([])
+        setCatalogError("No fue posible cargar el catalogo")
+      } finally {
+        if (!controller.signal.aborted) {
+          setLoadingCatalog(false)
+        }
+      }
+    }
+
+    void loadCatalog()
+
+    return () => controller.abort()
+  }, [])
 
   const toggleCollapse = useCallback((section: string) => {
     setCollapsedSections((prev) => {
@@ -242,18 +361,26 @@ export function ExercisesView() {
 
   // Filtered + grouped exercises
   const { sections, grouped } = useMemo(() => {
-    const sectionNames = getSectionsForTab(activeTab)
-    const groupedAll = getExercisesByTab(activeTab)
+    const sectionNames = activeTab === "upper" ? upperSectionOrder : lowerSectionOrder
+    const groupedAll: Record<string, Exercise[]> = {}
+
+    for (const exercise of catalogExercises) {
+      if (exercise.tab !== activeTab) continue
+      if (!groupedAll[exercise.section]) groupedAll[exercise.section] = []
+      groupedAll[exercise.section].push(exercise)
+    }
+
+    const availableSections = sectionNames.filter((section) => (groupedAll[section] ?? []).length > 0)
 
     if (!searchQuery.trim()) {
-      return { sections: sectionNames, grouped: groupedAll }
+      return { sections: availableSections, grouped: groupedAll }
     }
 
     const q = searchQuery.toLowerCase()
     const filteredGrouped: Record<string, Exercise[]> = {}
     const filteredSections: string[] = []
 
-    for (const section of sectionNames) {
+    for (const section of availableSections) {
       const exercises = (groupedAll[section] || []).filter(
         (ex) =>
           ex.name.toLowerCase().includes(q) ||
@@ -267,9 +394,12 @@ export function ExercisesView() {
     }
 
     return { sections: filteredSections, grouped: filteredGrouped }
-  }, [activeTab, searchQuery])
+  }, [activeTab, searchQuery, catalogExercises])
 
   const totalExercises = Object.values(grouped).reduce((sum, arr) => sum + arr.length, 0)
+  const emptyStateMessage = loadingCatalog
+    ? "Cargando ejercicios..."
+    : catalogError ?? "No se encontraron ejercicios"
 
   return (
     <div className="max-w-7xl mx-auto px-4 py-6 lg:px-6 lg:py-8">
@@ -396,7 +526,7 @@ export function ExercisesView() {
               </div>
               {sections.length === 0 && (
                 <div className="text-center py-12">
-                  <p className="text-sm text-muted-foreground">No se encontraron ejercicios</p>
+                  <p className="text-sm text-muted-foreground">{emptyStateMessage}</p>
                 </div>
               )}
             </TabsContent>
@@ -417,7 +547,7 @@ export function ExercisesView() {
               </div>
               {sections.length === 0 && (
                 <div className="text-center py-12">
-                  <p className="text-sm text-muted-foreground">No se encontraron ejercicios</p>
+                  <p className="text-sm text-muted-foreground">{emptyStateMessage}</p>
                 </div>
               )}
             </TabsContent>

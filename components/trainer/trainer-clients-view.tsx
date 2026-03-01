@@ -36,22 +36,19 @@ type ClientEntry = {
   }
   consent: {
     id: string
-    status: "ACTIVE" | "REVOKED" | "EXPIRED"
-    scopes: string[]
+    status: string
+    scope: string[]
     expires_at: string | null
   }
 }
 
 const scopeLabels: Record<string, string> = {
-  "sessions:read": "Sesiones",
-  "sessions:comment": "Comentarios",
-  "routines:read": "Rutinas",
-  "routines:write": "Editar rutinas",
-  "exercises:read": "Ejercicios",
-  "progress:read": "Progreso",
-  "prs:read": "PRs",
-  "achievements:read": "Logros",
-  "goals:write": "Objetivos",
+  "view_progress": "Progreso",
+  "view_routines": "Rutinas",
+  "manage_routines": "Editar rutinas",
+  "view_personal_records": "PRs",
+  "view_achievements": "Logros",
+  "full_access": "Acceso completo",
 }
 
 function formatExpiry(expiresAt: string | null) {
@@ -128,7 +125,7 @@ export function TrainerClientsView() {
 
     // Scope filter
     if (scopeFilter !== "all") {
-      result = result.filter(({ consent }) => consent.scopes.includes(scopeFilter))
+      result = result.filter(({ consent }) => consent.scope.includes(scopeFilter))
     }
 
     // Sort
@@ -204,11 +201,12 @@ export function TrainerClientsView() {
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="all">Todos los scopes</SelectItem>
-                <SelectItem value="sessions:read">Sesiones</SelectItem>
-                <SelectItem value="routines:read">Rutinas</SelectItem>
-                <SelectItem value="progress:read">Progreso</SelectItem>
-                <SelectItem value="prs:read">PRs</SelectItem>
-                <SelectItem value="achievements:read">Logros</SelectItem>
+                <SelectItem value="view_progress">Progreso</SelectItem>
+                <SelectItem value="view_routines">Rutinas</SelectItem>
+                <SelectItem value="manage_routines">Editar rutinas</SelectItem>
+                <SelectItem value="view_personal_records">PRs</SelectItem>
+                <SelectItem value="view_achievements">Logros</SelectItem>
+                <SelectItem value="full_access">Acceso completo</SelectItem>
               </SelectContent>
             </Select>
 
@@ -313,7 +311,7 @@ export function TrainerClientsView() {
                       </TableCell>
                       <TableCell>
                         <div className="flex flex-wrap gap-1.5">
-                          {consent.scopes.map((scope) => (
+                          {consent.scope.map((scope) => (
                             <Badge key={scope} variant="secondary" className="text-[10px]">
                               {scopeLabels[scope] ?? scope}
                             </Badge>

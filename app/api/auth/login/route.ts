@@ -1,6 +1,5 @@
-import { NextRequest, NextResponse } from "next/server"
-import { findUserByEmail, verifyPassword } from "@/lib/auth/demo-users"
-import { createSessionToken, SESSION_COOKIE_NAME, SESSION_DURATION } from "@/lib/auth/session"
+import { NextRequest, NextResponse } from 'next/server'
+import { createClient } from '@/lib/supabase/server'
 
 export async function POST(request: NextRequest) {
   try {
@@ -9,43 +8,43 @@ export async function POST(request: NextRequest) {
 
     if (!email || !password) {
       return NextResponse.json(
-        { error: "Email y contrasena son requeridos" },
+        { error: 'Email y contraseña son requeridos' },
         { status: 400 }
       )
     }
 
-    const user = await findUserByEmail(email)
-    if (!user) {
-      return NextResponse.json({ error: "Credenciales invalidas" }, { status: 401 })
+    const supabase = await createClient()
+    const { data, error } = await supabase.auth.signInWithPassword({ email, password })
+
+    if (error) {
+      const msg =
+        error.message.includes('Invalid login credentials')
+          ? 'Credenciales inválidas. Verifica tu email y contraseña.'
+          : error.message.includes('Email not confirmed')
+          ? 'Debes confirmar tu email antes de iniciar sesión.'
+          : 'Error al iniciar sesión. Intenta de nuevo.'
+      return NextResponse.json({ error: msg }, { status: 401 })
     }
 
-    const valid = await verifyPassword(password, user.passwordHash)
-    if (!valid) {
-      return NextResponse.json({ error: "Credenciales invalidas" }, { status: 401 })
-    }
+    // Obtener perfil con rol
+    const { data: profile } = await supabase
+      .from('profiles')
+      .select('id, gym_id, role, first_name, last_name, email, avatar_url')
+      .eq('id', data.user.id)
+      .single()
 
-    const token = await createSessionToken(user)
-
-    const response = NextResponse.json({
+    return NextResponse.json({
       user: {
-        id: user.id,
-        name: user.name,
-        email: user.email,
-        role: user.role,
-        avatar: user.avatar,
+        id: data.user.id,
+        email: data.user.email,
+        role: profile?.role ?? 'athlete',
+        first_name: profile?.first_name,
+        last_name: profile?.last_name,
+        avatar_url: profile?.avatar_url,
+        gym_id: profile?.gym_id,
       },
     })
-
-    response.cookies.set(SESSION_COOKIE_NAME, token, {
-      httpOnly: true,
-      secure: process.env.NODE_ENV === "production",
-      sameSite: "lax",
-      path: "/",
-      maxAge: SESSION_DURATION,
-    })
-
-    return response
   } catch {
-    return NextResponse.json({ error: "Error interno del servidor" }, { status: 500 })
+    return NextResponse.json({ error: 'Error interno del servidor' }, { status: 500 })
   }
 }

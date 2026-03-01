@@ -15,7 +15,7 @@ export function TrainerGuard({ children }: { children: React.ReactNode }) {
     )
   }
 
-  if (!user || (user.role !== "TRAINER" && user.role !== "ADMIN")) {
+  if (!user || (user.role !== "coach" && user.role !== "admin" && user.role !== "super_admin")) {
     return (
       <div className="px-4 py-10 lg:px-8">
         <Card className="border border-dashed border-destructive/30 bg-destructive/5">

@@ -1,12 +1,29 @@
 "use client"
 
+import { useState, useEffect } from "react"
 import Link from "next/link"
 import { ScanLine, ArrowRight } from "lucide-react"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
-import { Button } from "@/components/ui/button"
-import { machines } from "@/lib/mock-data"
+import { translateMuscleGroups } from "@/lib/utils"
+
+interface CatalogMachine {
+  id: string
+  name: string
+  muscle_groups: string[]
+}
 
 export function ScanContent() {
+  const [machines, setMachines] = useState<CatalogMachine[]>([])
+  const [loading, setLoading] = useState(true)
+
+  useEffect(() => {
+    fetch("/api/machines/catalog")
+      .then((res) => res.json())
+      .then((data) => setMachines(data.machines ?? []))
+      .catch(() => setMachines([]))
+      .finally(() => setLoading(false))
+  }, [])
+
   return (
     <div className="flex flex-col gap-6">
       {/* Scan CTA */}
@@ -22,31 +39,55 @@ export function ScanContent() {
         </CardContent>
       </Card>
 
-      {/* Simulated deep links */}
+      {/* Deep links by machine */}
       <div>
         <h3 className="text-sm font-semibold text-muted-foreground uppercase tracking-wider mb-3">
           Simular escaneo (deep links demo)
         </h3>
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
-          {machines.map((machine) => (
-            <Link key={machine.id} href={`/dashboard/machines/${machine.id}`}>
-              <Card className="group cursor-pointer border border-border hover:border-primary/40 hover:shadow-md transition-all duration-200 hover:-translate-y-0.5">
+
+        {loading ? (
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+            {[0, 1, 2].map((i) => (
+              <Card key={i} className="border border-border">
                 <CardHeader className="pb-2">
                   <div className="flex items-center justify-between">
-                    <span className="text-xs font-mono text-muted-foreground bg-muted px-2 py-0.5 rounded">
-                      {machine.id}
-                    </span>
-                    <ArrowRight className="w-4 h-4 text-muted-foreground group-hover:text-primary transition-colors" />
+                    <div className="h-5 w-24 rounded bg-muted animate-pulse" />
+                    <div className="h-4 w-4 rounded bg-muted animate-pulse" />
                   </div>
                 </CardHeader>
                 <CardContent className="pt-0">
-                  <CardTitle className="text-base mb-1">{machine.name}</CardTitle>
-                  <p className="text-xs text-muted-foreground">{machine.muscles.join(", ")}</p>
+                  <div className="h-4 w-32 rounded bg-muted animate-pulse mb-1" />
+                  <div className="h-3 w-20 rounded bg-muted animate-pulse" />
                 </CardContent>
               </Card>
-            </Link>
-          ))}
-        </div>
+            ))}
+          </div>
+        ) : machines.length === 0 ? (
+          <p className="text-sm text-muted-foreground text-center py-8">
+            No hay maquinas disponibles en tu gimnasio.
+          </p>
+        ) : (
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+            {machines.map((machine) => (
+              <Link key={machine.id} href={`/dashboard/machines/${machine.id}`}>
+                <Card className="group cursor-pointer border border-border hover:border-primary/40 hover:shadow-md transition-all duration-200 hover:-translate-y-0.5">
+                  <CardHeader className="pb-2">
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs font-mono text-muted-foreground bg-muted px-2 py-0.5 rounded truncate max-w-[120px]">
+                        {machine.id}
+                      </span>
+                      <ArrowRight className="w-4 h-4 text-muted-foreground group-hover:text-primary transition-colors" />
+                    </div>
+                  </CardHeader>
+                  <CardContent className="pt-0">
+                    <CardTitle className="text-base mb-1">{machine.name}</CardTitle>
+                    <p className="text-xs text-muted-foreground">{translateMuscleGroups(machine.muscle_groups)}</p>
+                  </CardContent>
+                </Card>
+              </Link>
+            ))}
+          </div>
+        )}
       </div>
     </div>
   )

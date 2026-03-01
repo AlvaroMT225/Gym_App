@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import { useEffect, useMemo, useState } from "react"
 import { useRouter } from "next/navigation"
 import {
   Dumbbell,
@@ -27,16 +27,88 @@ import {
 } from "@/components/ui/select"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
-import {
-  currentUser,
-  userRoutines,
-  coachRoutines,
-  workoutSessions,
-  machines,
-} from "@/lib/mock-data"
-import type { Routine, WorkoutSession } from "@/lib/mock-data"
 
-type RoutineMachine = Routine["machines"][number]
+interface RoutineItem {
+  id: string
+  orderIndex: number
+  exerciseId: string
+  exerciseName: string | null
+  muscleGroups: string[] | null
+  machineId: string | null
+  setsTarget: number
+  repsTarget: number
+  weightTarget: number | null
+  restSeconds: number
+  notes: string | null
+}
+
+interface RoutineDto {
+  id: string
+  name: string
+  description: string | null
+  isActive: boolean
+  daysPerWeek: number
+  difficultyLevel: number
+  updatedAt: string
+  items: RoutineItem[]
+}
+
+interface RoutinesResponse {
+  routines: RoutineDto[]
+  activeRoutineId: string | null
+}
+
+interface WorkoutSessionSummary {
+  id: string
+  routine_id: string | null
+  started_at: string
+  ended_at: string | null
+  duration_minutes: number | null
+  total_volume_kg: number
+  total_sets: number
+  total_reps: number
+  status: string
+  session_type: string
+}
+
+interface WorkoutSessionsResponse {
+  sessions: WorkoutSessionSummary[]
+}
+
+interface RoutineMachine {
+  machineId: string | null
+  machineName: string
+  targetSets: number
+  targetReps: string
+  restSeconds: number
+  notes: string
+}
+
+interface Routine {
+  id: string
+  name: string
+  description: string
+  source: "libre" | "entrenador"
+  machines: RoutineMachine[]
+  updatedAt: string
+}
+
+interface WorkoutSession {
+  id: string
+  date: string
+  type: "rutina" | "libre"
+  routineName?: string
+  machineCount: number
+  setCount: number
+  duration: number
+  totalVolume: number
+}
+
+interface MachineOption {
+  id: string
+  name: string
+  category: string
+}
 
 type RoutineForm = {
   name: string
@@ -52,9 +124,11 @@ const EMPTY_FORM: RoutineForm = { name: "", description: "", machines: [] }
 function RoutineCard({
   routine,
   onEdit,
+  isActive,
 }: {
   routine: Routine
   onEdit: () => void
+  isActive: boolean
 }) {
   const router = useRouter()
 
@@ -64,11 +138,13 @@ function RoutineCard({
 
   const handleComenzar = () => {
     const firstMachine = routine.machines[0]
-    if (firstMachine) {
+    if (firstMachine?.machineId) {
       router.push(
         `/dashboard/machines/${firstMachine.machineId}?mode=plan&routineId=${routine.id}&step=1`
       )
+      return
     }
+    window.alert("Este ejercicio no está asociado a una máquina")
   }
 
   return (
@@ -79,6 +155,11 @@ function RoutineCard({
           <h3 className="text-sm font-semibold text-foreground truncate">
             {routine.name}
           </h3>
+          {isActive && (
+            <Badge className="bg-primary/10 text-primary border-0 text-xs shrink-0">
+              Activa
+            </Badge>
+          )}
           {routine.source === "entrenador" && (
             <Badge className="bg-primary/10 text-primary border-0 text-xs shrink-0">
               Coach
@@ -192,6 +273,7 @@ function RoutineFormSheet({
   mode,
   form,
   setForm,
+  machineOptions,
   onSubmit,
 }: {
   open: boolean
@@ -199,6 +281,7 @@ function RoutineFormSheet({
   mode: "create" | "edit"
   form: RoutineForm
   setForm: React.Dispatch<React.SetStateAction<RoutineForm>>
+  machineOptions: MachineOption[]
   onSubmit: () => void
 }) {
   return (
@@ -290,7 +373,7 @@ function RoutineFormSheet({
             </Label>
             <Select
               onValueChange={(machineId) => {
-                const machine = machines.find((m) => m.id === machineId)
+                const machine = machineOptions.find((m) => m.id === machineId)
                 if (
                   machine &&
                   !form.machines.find((m) => m.machineId === machineId)
@@ -316,7 +399,7 @@ function RoutineFormSheet({
                 <SelectValue placeholder="Seleccionar máquina" />
               </SelectTrigger>
               <SelectContent>
-                {machines.map((m) => (
+                {machineOptions.map((m) => (
                   <SelectItem key={m.id} value={m.id}>
                     {m.name} — {m.category}
                   </SelectItem>
@@ -330,20 +413,10 @@ function RoutineFormSheet({
           {/* Submit */}
           <Button
             className="w-full gap-2"
-            disabled={!form.name.trim() || form.machines.length === 0}
+            disabled
             onClick={onSubmit}
           >
-            {mode === "create" ? (
-              <>
-                <Plus className="w-4 h-4" />
-                Crear rutina
-              </>
-            ) : (
-              <>
-                <Pencil className="w-4 h-4" />
-                Guardar cambios
-              </>
-            )}
+            Disponible pronto
           </Button>
         </div>
       </SheetContent>
@@ -356,27 +429,122 @@ function RoutineFormSheet({
 // ─────────────────────────────────────────────────────────────
 export default function RoutinesPage() {
   const [activeTab, setActiveTab] = useState("planes")
-  const [localRoutines, setLocalRoutines] = useState<Routine[]>(userRoutines)
+  const [localRoutines, setLocalRoutines] = useState<Routine[]>([])
   const [localCoachRoutines, setLocalCoachRoutines] =
-    useState<Routine[]>(coachRoutines)
+    useState<Routine[]>([])
+  const [sortedSessions, setSortedSessions] = useState<WorkoutSession[]>([])
+  const [activeRoutineId, setActiveRoutineId] = useState<string | null>(null)
+  const [loadingData, setLoadingData] = useState(true)
+  const [loadError, setLoadError] = useState<string | null>(null)
 
   // Unified Sheet state
   const [sheetOpen, setSheetOpen] = useState(false)
   const [sheetMode, setSheetMode] = useState<"create" | "edit">("create")
   const [form, setForm] = useState<RoutineForm>(EMPTY_FORM)
-  const [editingId, setEditingId] = useState<string | null>(null)
 
-  const hasCoach =
-    currentUser.planType === "COACHING" && currentUser.coachStatus === "ACTIVE"
+  const hasCoach = localCoachRoutines.length > 0
 
-  const sortedSessions = [...workoutSessions].sort(
-    (a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()
-  )
+  const machineOptions = useMemo<MachineOption[]>(() => {
+    const machineMap = new Map<string, MachineOption>()
+    const allRoutines = [...localCoachRoutines, ...localRoutines]
+    for (const routine of allRoutines) {
+      for (const item of routine.machines) {
+        if (!item.machineId || machineMap.has(item.machineId)) continue
+        machineMap.set(item.machineId, {
+          id: item.machineId,
+          name: item.machineName,
+          category: "Ejercicio",
+        })
+      }
+    }
+    return Array.from(machineMap.values())
+  }, [localCoachRoutines, localRoutines])
+
+  useEffect(() => {
+    const controller = new AbortController()
+
+    const loadRoutineData = async () => {
+      setLoadingData(true)
+      setLoadError(null)
+
+      try {
+        const [routinesResponseRaw, sessionsResponseRaw] = await Promise.all([
+          fetch("/api/client/routines", {
+            method: "GET",
+            cache: "no-store",
+            signal: controller.signal,
+          }),
+          fetch("/api/client/workout-sessions/recent", {
+            method: "GET",
+            cache: "no-store",
+            signal: controller.signal,
+          }),
+        ])
+
+        if (!routinesResponseRaw.ok || !sessionsResponseRaw.ok) {
+          throw new Error("routine_data_fetch_failed")
+        }
+
+        const routinesResponse = (await routinesResponseRaw.json()) as RoutinesResponse
+        const sessionsResponse = (await sessionsResponseRaw.json()) as WorkoutSessionsResponse
+
+        const mappedRoutines: Routine[] = routinesResponse.routines.map((routine) => ({
+          id: routine.id,
+          name: routine.name,
+          description: routine.description ?? "",
+          source: "libre",
+          machines: routine.items.map((item) => ({
+            machineId: item.machineId ?? null,
+            machineName: item.exerciseName ?? "Ejercicio",
+            targetSets: item.setsTarget,
+            targetReps: String(item.repsTarget),
+            restSeconds: item.restSeconds,
+            notes: item.notes ?? "",
+          })),
+          updatedAt: routine.updatedAt,
+        }))
+
+        const routineNameById = new Map<string, string>(
+          mappedRoutines.map((routine) => [routine.id, routine.name])
+        )
+        const mappedSessions: WorkoutSession[] = sessionsResponse.sessions.map((session) => ({
+          id: session.id,
+          date: session.started_at,
+          type: session.routine_id ? "rutina" : "libre",
+          routineName: session.routine_id ? (routineNameById.get(session.routine_id) ?? "Rutina") : undefined,
+          machineCount: 0,
+          setCount: session.total_sets,
+          duration: session.duration_minutes ?? 0,
+          totalVolume: session.total_volume_kg,
+        }))
+
+        if (!controller.signal.aborted) {
+          setLocalRoutines(mappedRoutines)
+          setLocalCoachRoutines([])
+          setActiveRoutineId(routinesResponse.activeRoutineId ?? null)
+          setSortedSessions(mappedSessions)
+        }
+      } catch {
+        if (controller.signal.aborted) return
+        setLocalRoutines([])
+        setLocalCoachRoutines([])
+        setActiveRoutineId(null)
+        setSortedSessions([])
+        setLoadError("No fue posible cargar tu rutina")
+      } finally {
+        if (!controller.signal.aborted) {
+          setLoadingData(false)
+        }
+      }
+    }
+
+    void loadRoutineData()
+    return () => controller.abort()
+  }, [])
 
   const handleOpenCreate = () => {
     setSheetMode("create")
     setForm(EMPTY_FORM)
-    setEditingId(null)
     setSheetOpen(true)
   }
 
@@ -387,44 +555,10 @@ export default function RoutinesPage() {
       description: routine.description,
       machines: routine.machines,
     })
-    setEditingId(routine.id)
     setSheetOpen(true)
   }
 
-  const handleSubmit = () => {
-    if (sheetMode === "create") {
-      const created: Routine = {
-        id: `routine-${Date.now()}`,
-        name: form.name.trim(),
-        description: form.description.trim(),
-        source: "libre",
-        machines: form.machines,
-        createdAt: new Date().toISOString().split("T")[0],
-        updatedAt: new Date().toISOString().split("T")[0],
-      }
-      setLocalRoutines((prev) => [...prev, created])
-    } else {
-      const updatedFields = {
-        name: form.name.trim(),
-        description: form.description.trim(),
-        machines: form.machines,
-        updatedAt: new Date().toISOString().split("T")[0],
-      }
-      const isCoach = localCoachRoutines.some((r) => r.id === editingId)
-      if (isCoach) {
-        setLocalCoachRoutines((prev) =>
-          prev.map((r) => (r.id === editingId ? { ...r, ...updatedFields } : r))
-        )
-      } else {
-        setLocalRoutines((prev) =>
-          prev.map((r) => (r.id === editingId ? { ...r, ...updatedFields } : r))
-        )
-      }
-    }
-    setForm(EMPTY_FORM)
-    setEditingId(null)
-    setSheetOpen(false)
-  }
+  const handleSubmit = () => {}
 
   return (
     <div className="px-4 py-6 lg:px-8 lg:py-8">
@@ -445,7 +579,17 @@ export default function RoutinesPage() {
 
         {/* TAB: Planes */}
         <TabsContent value="planes" className="space-y-4">
-          {hasCoach ? (
+          {loadingData ? (
+            <div className="flex flex-col items-center justify-center py-16 text-center">
+              <p className="text-sm text-muted-foreground">Cargando tu rutina...</p>
+            </div>
+          ) : loadError ? (
+            <div className="flex flex-col items-center justify-center py-16 text-center">
+              <p className="text-sm font-medium text-muted-foreground">
+                No fue posible cargar tu rutina
+              </p>
+            </div>
+          ) : hasCoach ? (
             <>
               {/* Rutinas del entrenador */}
               <div>
@@ -459,13 +603,18 @@ export default function RoutinesPage() {
                   </Badge>
                 </div>
                 <div className="space-y-3">
-                  {localCoachRoutines.map((routine) => (
-                    <RoutineCard
-                      key={routine.id}
-                      routine={routine}
-                      onEdit={() => handleOpenEdit(routine)}
-                    />
-                  ))}
+                  {localCoachRoutines.length === 0 ? (
+                    <p className="text-sm text-muted-foreground">Sin rutina aún</p>
+                  ) : (
+                    localCoachRoutines.map((routine) => (
+                      <RoutineCard
+                        key={routine.id}
+                        routine={routine}
+                        isActive={routine.id === activeRoutineId}
+                        onEdit={() => handleOpenEdit(routine)}
+                      />
+                    ))
+                  )}
                 </div>
               </div>
 
@@ -476,15 +625,20 @@ export default function RoutinesPage() {
                 <h2 className="text-sm font-semibold text-muted-foreground uppercase tracking-wider mb-3">
                   Mis rutinas (libres)
                 </h2>
-                <div className="space-y-3">
-                  {localRoutines.map((routine) => (
-                    <RoutineCard
-                      key={routine.id}
-                      routine={routine}
-                      onEdit={() => handleOpenEdit(routine)}
-                    />
-                  ))}
-                </div>
+                {localRoutines.length === 0 ? (
+                  <p className="text-sm text-muted-foreground">Sin rutina aún</p>
+                ) : (
+                  <div className="space-y-3">
+                    {localRoutines.map((routine) => (
+                      <RoutineCard
+                        key={routine.id}
+                        routine={routine}
+                        isActive={routine.id === activeRoutineId}
+                        onEdit={() => handleOpenEdit(routine)}
+                      />
+                    ))}
+                  </div>
+                )}
                 <Button
                   variant="outline"
                   className="w-full mt-4 gap-2"
@@ -501,15 +655,20 @@ export default function RoutinesPage() {
               <h2 className="text-sm font-semibold text-muted-foreground uppercase tracking-wider mb-3">
                 Mis rutinas
               </h2>
-              <div className="space-y-3">
-                {localRoutines.map((routine) => (
-                  <RoutineCard
-                    key={routine.id}
-                    routine={routine}
-                    onEdit={() => handleOpenEdit(routine)}
-                  />
-                ))}
-              </div>
+              {localRoutines.length === 0 ? (
+                <p className="text-sm text-muted-foreground">Sin rutina aún</p>
+              ) : (
+                <div className="space-y-3">
+                  {localRoutines.map((routine) => (
+                    <RoutineCard
+                      key={routine.id}
+                      routine={routine}
+                      isActive={routine.id === activeRoutineId}
+                      onEdit={() => handleOpenEdit(routine)}
+                    />
+                  ))}
+                </div>
+              )}
               <Button
                 variant="outline"
                 className="w-full mt-4 gap-2"
@@ -524,11 +683,21 @@ export default function RoutinesPage() {
 
         {/* TAB: Historial */}
         <TabsContent value="historial">
-          {sortedSessions.length === 0 ? (
+          {loadingData ? (
+            <div className="flex flex-col items-center justify-center py-16 text-center">
+              <p className="text-sm text-muted-foreground">Cargando historial...</p>
+            </div>
+          ) : loadError ? (
+            <div className="flex flex-col items-center justify-center py-16 text-center">
+              <p className="text-sm font-medium text-muted-foreground">
+                No fue posible cargar tu rutina
+              </p>
+            </div>
+          ) : sortedSessions.length === 0 ? (
             <div className="flex flex-col items-center justify-center py-16 text-center">
               <Calendar className="w-10 h-10 text-muted-foreground mb-3" />
               <p className="text-sm font-medium text-muted-foreground">
-                Sin sesiones registradas
+                Sin sesiones recientes
               </p>
               <p className="text-xs text-muted-foreground mt-1">
                 Tus entrenamientos aparecerán aquí
@@ -551,6 +720,7 @@ export default function RoutinesPage() {
         mode={sheetMode}
         form={form}
         setForm={setForm}
+        machineOptions={machineOptions}
         onSubmit={handleSubmit}
       />
     </div>

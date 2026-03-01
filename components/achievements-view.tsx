@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import { useEffect, useState } from "react"
 
 import {
   Zap,
@@ -14,21 +14,42 @@ import {
   Sun,
   QrCode,
   Lock,
-  X,
 } from "lucide-react"
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
+import { Card, CardContent } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Progress } from "@/components/ui/progress"
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog"
-import { Button } from "@/components/ui/button"
-import { useStore, type AchievementExtended } from "@/lib/store"
 import { formatNumber, formatDateLong } from "@/lib/utils"
+
+type AchievementDto = {
+  id: string
+  name: string
+  description: string | null
+  category: string | null
+  iconName: string | null
+  iconColor: string
+  points: number
+  criteria: Record<string, unknown>
+  unlocked: boolean
+  unlockedAt: string | null
+}
+
+type AchievementsResponse = {
+  achievements: AchievementDto[]
+  unlockedCount: number
+  totalCount: number
+  recentUnlocked: AchievementDto[]
+}
 
 const iconMap: Record<string, typeof Zap> = {
   Zap, Flame, Trophy, Target, Shield, TrendingUp, Swords, Medal, Sun, QrCode,
 }
 
 const categoryLabels: Record<string, string> = {
+  milestone: "Hitos",
+  consistency: "Constancia",
+  strength: "Fuerza",
+  volume: "Volumen",
   racha: "Racha",
   volumen: "Volumen",
   pr: "PR",
@@ -45,26 +66,104 @@ const categoryColors: Record<string, string> = {
 }
 
 export function AchievementsView() {
-  const { achievements, user, sessions } = useStore()
+  const [stats, setStats] = useState<{ currentStreak: number; totalPoints: number }>({
+    currentStreak: 0,
+    totalPoints: 0,
+  })
+  const [response, setResponse] = useState<AchievementsResponse>({
+    achievements: [],
+    unlockedCount: 0,
+    totalCount: 0,
+    recentUnlocked: [],
+  })
+  const [selectedAchievement, setSelectedAchievement] = useState<AchievementDto | null>(null)
+  const [filterCategory, setFilterCategory] = useState<string>("all")
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
 
-  // Compute best weight across all sessions for the "100 kg Club" achievement
-  const bestWeight = (() => {
-    let max = 0
-    for (const session of sessions) {
-      for (const set of session.sets) {
-        if (set.weight > max) max = set.weight
+  useEffect(() => {
+    let cancelled = false
+
+    const loadAchievements = async () => {
+      setLoading(true)
+      setError(null)
+      try {
+        const apiResponse = await fetch("/api/client/achievements", { cache: "no-store" })
+        if (!apiResponse.ok) {
+          throw new Error("achievements_request_failed")
+        }
+
+        const json = (await apiResponse.json()) as Partial<AchievementsResponse>
+        if (cancelled) return
+
+        setResponse({
+          achievements: Array.isArray(json.achievements) ? json.achievements : [],
+          unlockedCount: typeof json.unlockedCount === "number" ? json.unlockedCount : 0,
+          totalCount: typeof json.totalCount === "number" ? json.totalCount : 0,
+          recentUnlocked: Array.isArray(json.recentUnlocked) ? json.recentUnlocked : [],
+        })
+      } catch {
+        if (cancelled) return
+        setResponse({
+          achievements: [],
+          unlockedCount: 0,
+          totalCount: 0,
+          recentUnlocked: [],
+        })
+        setError("No fue posible cargar tus logros")
+      } finally {
+        if (!cancelled) setLoading(false)
       }
     }
-    return max || 80 // default 80 when no session data
-  })()
-  const [selectedAchievement, setSelectedAchievement] = useState<AchievementExtended | null>(null)
-  const [filterCategory, setFilterCategory] = useState<string>("all")
 
-  const unlocked = achievements.filter((a) => a.unlocked)
-  const locked = achievements.filter((a) => !a.unlocked)
-  const totalPoints = user.totalPoints
+    void loadAchievements()
 
-  const categories = ["all", ...new Set(achievements.map((a) => a.category))]
+    return () => {
+      cancelled = true
+    }
+  }, [])
+
+  const achievements = response.achievements
+  const totalPoints = stats.totalPoints
+
+  useEffect(() => {
+    let cancelled = false
+
+    const loadStats = async () => {
+      try {
+        const apiResponse = await fetch("/api/user/stats", { cache: "no-store" })
+        if (!apiResponse.ok) {
+          throw new Error("stats_request_failed")
+        }
+
+        const json = (await apiResponse.json()) as Partial<{ currentStreak: number; totalPoints: number }>
+        if (cancelled) return
+
+        setStats({
+          currentStreak: typeof json.currentStreak === "number" ? json.currentStreak : 0,
+          totalPoints: typeof json.totalPoints === "number" ? json.totalPoints : 0,
+        })
+      } catch {
+        if (cancelled) return
+        setStats({ currentStreak: 0, totalPoints: 0 })
+      }
+    }
+
+    void loadStats()
+
+    return () => {
+      cancelled = true
+    }
+  }, [])
+
+  const categories = [
+    "all",
+    ...new Set(
+      achievements
+        .map((achievement) => achievement.category)
+        .filter((category): category is string => Boolean(category))
+    ),
+  ]
 
   const filtered = filterCategory === "all"
     ? achievements
@@ -79,7 +178,7 @@ export function AchievementsView() {
             <div className="flex items-center justify-center w-10 h-10 rounded-lg bg-accent/15 mb-2">
               <Trophy className="w-5 h-5 text-accent" />
             </div>
-            <p className="text-2xl font-bold text-foreground">{unlocked.length}<span className="text-sm font-normal text-muted-foreground">/{achievements.length}</span></p>
+            <p className="text-2xl font-bold text-foreground">{response.unlockedCount}<span className="text-sm font-normal text-muted-foreground">/{response.totalCount}</span></p>
             <p className="text-xs text-muted-foreground">Desbloqueados</p>
           </CardContent>
         </Card>
@@ -97,11 +196,18 @@ export function AchievementsView() {
             <div className="flex items-center justify-center w-10 h-10 rounded-lg bg-accent/15 mb-2">
               <Flame className="w-5 h-5 text-accent" />
             </div>
-            <p className="text-2xl font-bold text-foreground">{user.scanStreak}</p>
+            <p className="text-2xl font-bold text-foreground">{stats.currentStreak ?? 0}</p>
             <p className="text-xs text-muted-foreground">Racha actual</p>
           </CardContent>
         </Card>
       </div>
+
+      {loading && (
+        <p className="text-sm text-muted-foreground">Cargando logros...</p>
+      )}
+      {error && (
+        <p className="text-sm text-destructive">{error}</p>
+      )}
 
       {/* Filter */}
       <div className="flex flex-wrap gap-1.5">
@@ -124,7 +230,7 @@ export function AchievementsView() {
       {/* Achievement Grid */}
       <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3">
         {filtered.map((achievement) => {
-          const IconComponent = iconMap[achievement.icon] || Trophy
+          const IconComponent = iconMap[achievement.iconName ?? ""] || Trophy
           const isUnlocked = achievement.unlocked
           return (
             <button
@@ -150,14 +256,14 @@ export function AchievementsView() {
                     )}
                   </div>
                   <h4 className={`text-xs font-semibold mb-1 ${isUnlocked ? "text-foreground" : "text-muted-foreground"}`}>
-                    {achievement.title}
+                    {achievement.name}
                   </h4>
-                  <Badge className={`text-[10px] border-0 ${categoryColors[achievement.category] || "bg-muted text-muted-foreground"}`}>
-                    {categoryLabels[achievement.category] || achievement.category}
+                  <Badge className={`text-[10px] border-0 ${categoryColors[achievement.category ?? ""] || "bg-muted text-muted-foreground"}`}>
+                    {achievement.category ? (categoryLabels[achievement.category] || achievement.category) : "General"}
                   </Badge>
                   {!isUnlocked && (
                     <div className="w-full mt-2">
-                      <Progress value={(achievement.progress / achievement.goal) * 100} className="h-1.5" />
+                      <Progress value={0} className="h-1.5" />
                     </div>
                   )}
                 </CardContent>
@@ -174,10 +280,10 @@ export function AchievementsView() {
             <DialogHeader>
               <DialogTitle className="flex items-center gap-2">
                 {(() => {
-                  const Icon = iconMap[selectedAchievement.icon] || Trophy
+                  const Icon = iconMap[selectedAchievement.iconName ?? ""] || Trophy
                   return <Icon className={`w-5 h-5 ${selectedAchievement.unlocked ? "text-primary" : "text-muted-foreground"}`} />
                 })()}
-                {selectedAchievement.title}
+                {selectedAchievement.name}
               </DialogTitle>
             </DialogHeader>
             <div className="flex flex-col gap-4 py-2">
@@ -185,30 +291,26 @@ export function AchievementsView() {
               <div className="flex flex-col gap-2">
                 <div className="flex items-center justify-between text-sm">
                   <span className="text-muted-foreground">Requisito:</span>
-                  <span className="font-medium text-foreground">{selectedAchievement.requirement}</span>
+                  <span className="font-medium text-foreground">Disponible pronto</span>
                 </div>
                 <div className="flex items-center justify-between text-sm">
                   <span className="text-muted-foreground">
-                    {selectedAchievement.id === "a3" ? "Mejor set:" : "Progreso:"}
+                    Progreso:
                   </span>
                   <span className="font-medium text-foreground">
-                    {selectedAchievement.id === "a3"
-                      ? `${bestWeight}/100 kg`
-                      : `${formatNumber(selectedAchievement.progress)} / ${formatNumber(selectedAchievement.goal)}`}
+                    Disponible pronto
                   </span>
                 </div>
                 <Progress
-                  value={
-                    selectedAchievement.id === "a3"
-                      ? Math.min((bestWeight / 100) * 100, 100)
-                      : (selectedAchievement.progress / selectedAchievement.goal) * 100
-                  }
+                  value={selectedAchievement.unlocked ? 100 : 0}
                   className="h-2"
                 />
                 <div className="flex items-center justify-between text-sm">
                   <span className="text-muted-foreground">Categoria:</span>
-                  <Badge className={`border-0 ${categoryColors[selectedAchievement.category]}`}>
-                    {categoryLabels[selectedAchievement.category]}
+                  <Badge className={`border-0 ${categoryColors[selectedAchievement.category ?? ""] || "bg-muted text-muted-foreground"}`}>
+                    {selectedAchievement.category
+                      ? (categoryLabels[selectedAchievement.category] || selectedAchievement.category)
+                      : "General"}
                   </Badge>
                 </div>
                 {selectedAchievement.unlocked && selectedAchievement.unlockedAt && (
@@ -225,9 +327,7 @@ export function AchievementsView() {
               ) : (
                 <div className="text-center py-2">
                   <p className="text-xs text-muted-foreground">
-                    {selectedAchievement.id === "a3"
-                      ? `${Math.round(Math.min((bestWeight / 100) * 100, 100))}% completado. Sigue entrenando.`
-                      : `${Math.round((selectedAchievement.progress / selectedAchievement.goal) * 100)}% completado. Sigue entrenando.`}
+                    Disponible pronto
                   </p>
                 </div>
               )}

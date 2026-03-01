@@ -10,7 +10,6 @@ import {
   currentUser as initialUser,
   rankings as initialRankings,
   gymMembers as initialGymMembers,
-  tutorials as initialTutorials,
   gymSchedule as initialGymSchedule,
   userCoach as initialUserCoach,
   userRoutines as initialUserRoutines,
@@ -84,6 +83,23 @@ export interface Notification {
   date: string
 }
 
+interface TutorialProgressItem {
+  tutorialId: string
+  machineId: string | null
+  completed: boolean
+  progressPercent: number
+}
+
+interface TutorialProgressResponse {
+  items?: TutorialProgressItem[]
+}
+
+interface TutorialDetailResponse {
+  item?: {
+    tutorialId?: string | null
+  }
+}
+
 // ── Store State ───────────────────────────────────────────────
 interface StoreState {
   // Sessions (converted from old setHistory + new)
@@ -111,7 +127,8 @@ interface StoreState {
 
   // Tutorials seen
   tutorialsSeen: Record<string, boolean>
-  markTutorialSeen: (machineId: string) => void
+  loadTutorialProgress: () => Promise<void>
+  markTutorialSeen: (machineId: string, tutorialId?: string) => Promise<void>
 
   // User preferences
   weightUnit: "kg" | "lb"
@@ -306,8 +323,73 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     )
   }, [])
 
-  const markTutorialSeen = useCallback((machineId: string) => {
-    setTutorialsSeen((prev) => ({ ...prev, [machineId]: true }))
+  const loadTutorialProgress = useCallback(async () => {
+    try {
+      const response = await fetch("/api/client/tutorials/progress", {
+        method: "GET",
+        cache: "no-store",
+      })
+
+      if (!response.ok) {
+        if (response.status === 401 || response.status === 403) return
+        throw new Error(`tutorial_progress_load_failed_${response.status}`)
+      }
+
+      const payload = (await response.json()) as TutorialProgressResponse
+      const nextSeen: Record<string, boolean> = {}
+
+      for (const row of payload.items ?? []) {
+        if (!row.machineId) continue
+        if (row.completed || row.progressPercent >= 100) {
+          nextSeen[row.machineId] = true
+        }
+      }
+
+      setTutorialsSeen(nextSeen)
+    } catch (error) {
+      console.error("loadTutorialProgress failed:", error)
+    }
+  }, [])
+
+  const markTutorialSeen = useCallback(async (machineId: string, tutorialId?: string) => {
+    try {
+      let resolvedTutorialId = tutorialId?.trim() ?? ""
+
+      if (!resolvedTutorialId) {
+        const detailResponse = await fetch(`/api/client/tutorials/${encodeURIComponent(machineId)}`, {
+          method: "GET",
+          cache: "no-store",
+        })
+
+        if (!detailResponse.ok) {
+          throw new Error(`tutorial_detail_fetch_failed_${detailResponse.status}`)
+        }
+
+        const detailPayload = (await detailResponse.json()) as TutorialDetailResponse
+        resolvedTutorialId = detailPayload.item?.tutorialId?.trim() ?? ""
+      }
+
+      if (!resolvedTutorialId) {
+        throw new Error("tutorial_id_not_resolved")
+      }
+
+      const response = await fetch("/api/client/tutorials/progress", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          tutorialId: resolvedTutorialId,
+          progressPercent: 100,
+        }),
+      })
+
+      if (!response.ok) {
+        throw new Error(`tutorial_progress_post_failed_${response.status}`)
+      }
+
+      setTutorialsSeen((prev) => ({ ...prev, [machineId]: true }))
+    } catch (error) {
+      console.error("markTutorialSeen failed:", error)
+    }
   }, [])
 
   const updateUser = useCallback((data: { name: string; email: string }) => {
@@ -339,6 +421,10 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     })
   }, [workoutSessionsData])
 
+  useEffect(() => {
+    void loadTutorialProgress()
+  }, [loadTutorialProgress])
+
   return (
     <StoreContext.Provider
       value={{
@@ -356,6 +442,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         markPaymentReceived,
         sendReminder,
         tutorialsSeen,
+        loadTutorialProgress,
         markTutorialSeen,
         weightUnit,
         setWeightUnit,

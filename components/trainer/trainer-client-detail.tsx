@@ -53,7 +53,7 @@ interface ClientSummary {
   }
   consent: {
     status: string
-    scopes: string[]
+    scope: string[]
     expires_at: string | null
   }
 }
@@ -143,15 +143,12 @@ interface AchievementEntry {
 }
 
 const scopeLabels: Record<string, string> = {
-  "sessions:read": "Sesiones",
-  "sessions:comment": "Comentarios",
-  "routines:read": "Rutinas",
-  "routines:write": "Editar rutinas",
-  "exercises:read": "Ejercicios",
-  "progress:read": "Progreso",
-  "prs:read": "PRs",
-  "achievements:read": "Logros",
-  "goals:write": "Objetivos",
+  view_progress: "Ver Progreso",
+  view_routines: "Ver Rutinas",
+  manage_routines: "Gestionar Rutinas",
+  view_personal_records: "Ver Records",
+  view_achievements: "Ver Logros",
+  full_access: "Acceso Completo",
 }
 
 /* ---------- blocked card ---------- */
@@ -233,7 +230,7 @@ function SessionsModule({
   )
 
   if (loading) return <p className="text-sm text-muted-foreground">Cargando sesiones...</p>
-  if (!data) return null
+  if (!data?.sessions) return null
 
   return (
     <Card className="border border-border">
@@ -247,15 +244,15 @@ function SessionsModule({
         {/* Metrics summary */}
         <div className="grid grid-cols-3 gap-3">
           <div className="flex flex-col items-center py-3 bg-muted rounded-lg">
-            <p className="text-lg font-bold text-foreground">{formatNumber(data.metrics.totalVolume)}</p>
+            <p className="text-lg font-bold text-foreground">{formatNumber(data.metrics?.totalVolume ?? 0)}</p>
             <p className="text-[10px] text-muted-foreground">Vol. total (kg)</p>
           </div>
           <div className="flex flex-col items-center py-3 bg-muted rounded-lg">
-            <p className="text-lg font-bold text-foreground">{formatNumber(data.metrics.totalReps)}</p>
+            <p className="text-lg font-bold text-foreground">{formatNumber(data.metrics?.totalReps ?? 0)}</p>
             <p className="text-[10px] text-muted-foreground">Reps totales</p>
           </div>
           <div className="flex flex-col items-center py-3 bg-muted rounded-lg">
-            <p className="text-lg font-bold text-foreground">{data.metrics.avgRpe.toFixed(1)}</p>
+            <p className="text-lg font-bold text-foreground">{(data.metrics?.avgRpe ?? 0).toFixed(1)}</p>
             <p className="text-[10px] text-muted-foreground">RPE promedio</p>
           </div>
         </div>
@@ -406,6 +403,9 @@ function PlannedSessionsModule({
   const [scheduledAt, setScheduledAt] = useState<Date | undefined>(undefined)
   const [items, setItems] = useState<any[]>([])
   const [changelog, setChangelog] = useState("")
+  const [catalog, setCatalog] = useState<{ id: string; name: string; muscles: string[]; machine: string }[]>([])
+  const [catalogLoaded, setCatalogLoaded] = useState(false)
+  const [exerciseSearch, setExerciseSearch] = useState("")
 
   const loadSessions = useCallback(async () => {
     try {
@@ -425,6 +425,15 @@ function PlannedSessionsModule({
     loadSessions()
   }, [loadSessions])
 
+  useEffect(() => {
+    if (!builderOpen || catalogLoaded) return
+    fetch("/api/trainer/exercises")
+      .then((r) => (r.ok ? r.json() : { exercises: [] }))
+      .then((d) => setCatalog(d.exercises || []))
+      .catch(() => {})
+      .finally(() => setCatalogLoaded(true))
+  }, [builderOpen, catalogLoaded])
+
   const openBuilder = (session?: any) => {
     if (session) {
       setEditingId(session.id)
@@ -441,6 +450,7 @@ function PlannedSessionsModule({
       setItems([])
       setChangelog("Versión inicial")
     }
+    setExerciseSearch("")
     setBuilderOpen(true)
   }
 
@@ -626,34 +636,157 @@ function PlannedSessionsModule({
                 </PopoverContent>
               </Popover>
             </div>
-            {/* Item builder (simplified) */}
+            {/* Exercise selector */}
             <div>
               <Label className="text-sm">Ejercicios</Label>
-              <p className="text-xs text-muted-foreground mb-2">
-                (Builder simplificado - en producción, usar selector de catálogo completo)
-              </p>
-              {items.length === 0 && (
-                <p className="text-xs text-muted-foreground">Sin ejercicios añadidos.</p>
+              {/* Added items */}
+              {items.length > 0 && (
+                <div className="flex flex-col gap-2 mt-2 mb-3">
+                  {items.map((item, idx) => (
+                    <div key={idx} className="border border-border rounded-lg p-2">
+                      <div className="flex items-center justify-between mb-1.5">
+                        <span className="text-xs font-semibold text-foreground truncate flex-1 pr-2">
+                          {item.exerciseName}
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() => setItems(items.filter((_, i) => i !== idx))}
+                          className="text-destructive hover:text-destructive/80 shrink-0"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
+                      {item.muscles && item.muscles.length > 0 && (
+                        <div className="flex flex-wrap gap-1 mb-1.5">
+                          {(item.muscles as string[]).slice(0, 3).map((m) => (
+                            <Badge key={m} variant="secondary" className="text-[10px] py-0 h-4">
+                              {m}
+                            </Badge>
+                          ))}
+                        </div>
+                      )}
+                      <div className="grid grid-cols-4 gap-1.5">
+                        <div>
+                          <p className="text-[10px] text-muted-foreground mb-0.5">Series</p>
+                          <Input
+                            type="number"
+                            min={1}
+                            max={20}
+                            value={item.sets}
+                            onChange={(e) => {
+                              const updated = [...items]
+                              updated[idx] = { ...updated[idx], sets: parseInt(e.target.value) || 1 }
+                              setItems(updated)
+                            }}
+                            className="h-7 text-xs text-center px-1"
+                          />
+                        </div>
+                        <div>
+                          <p className="text-[10px] text-muted-foreground mb-0.5">Reps</p>
+                          <Input
+                            type="number"
+                            min={1}
+                            max={100}
+                            value={item.reps}
+                            onChange={(e) => {
+                              const updated = [...items]
+                              updated[idx] = { ...updated[idx], reps: parseInt(e.target.value) || 1 }
+                              setItems(updated)
+                            }}
+                            className="h-7 text-xs text-center px-1"
+                          />
+                        </div>
+                        <div>
+                          <p className="text-[10px] text-muted-foreground mb-0.5">Descanso s</p>
+                          <Input
+                            type="number"
+                            min={0}
+                            max={600}
+                            value={item.restSec}
+                            onChange={(e) => {
+                              const updated = [...items]
+                              updated[idx] = { ...updated[idx], restSec: parseInt(e.target.value) || 60 }
+                              setItems(updated)
+                            }}
+                            className="h-7 text-xs text-center px-1"
+                          />
+                        </div>
+                        <div>
+                          <p className="text-[10px] text-muted-foreground mb-0.5">RPE</p>
+                          <Input
+                            type="number"
+                            min={1}
+                            max={10}
+                            value={item.targetRpe ?? ""}
+                            onChange={(e) => {
+                              const updated = [...items]
+                              updated[idx] = {
+                                ...updated[idx],
+                                targetRpe: e.target.value ? parseInt(e.target.value) : undefined,
+                              }
+                              setItems(updated)
+                            }}
+                            className="h-7 text-xs text-center px-1"
+                            placeholder="-"
+                          />
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
               )}
-              <Button
-                size="sm"
-                variant="outline"
-                className="mt-2"
-                onClick={() =>
-                  setItems([
-                    ...items,
-                    {
-                      exerciseId: "ex-sentadilla",
-                      sets: 3,
-                      reps: 10,
-                      restSec: 90,
-                      targetRpe: 7,
-                    },
-                  ])
-                }
-              >
-                + Añadir ejercicio
-              </Button>
+              {/* Search & add from catalog */}
+              <div className="relative mt-2">
+                <Input
+                  placeholder="Buscar ejercicio del catálogo..."
+                  value={exerciseSearch}
+                  onChange={(e) => setExerciseSearch(e.target.value)}
+                  className="h-8 text-xs"
+                />
+                {exerciseSearch.trim().length >= 2 && (
+                  <div className="absolute z-50 w-full mt-1 bg-background border border-border rounded-md shadow-lg max-h-44 overflow-y-auto">
+                    {catalog
+                      .filter((ex) => ex.name.toLowerCase().includes(exerciseSearch.toLowerCase()))
+                      .slice(0, 8)
+                      .map((ex) => (
+                        <button
+                          key={ex.id}
+                          type="button"
+                          className="w-full text-left px-3 py-2 text-xs hover:bg-muted flex items-center justify-between gap-2"
+                          onClick={() => {
+                            setItems([
+                              ...items,
+                              {
+                                exerciseId: ex.id,
+                                exerciseName: ex.name,
+                                muscles: ex.muscles,
+                                machine: ex.machine,
+                                sets: 3,
+                                reps: 10,
+                                restSec: 90,
+                                targetRpe: undefined,
+                              },
+                            ])
+                            setExerciseSearch("")
+                          }}
+                        >
+                          <span className="font-medium truncate">{ex.name}</span>
+                          <span className="text-muted-foreground shrink-0 text-[10px]">{ex.machine}</span>
+                        </button>
+                      ))}
+                    {catalog.filter((ex) =>
+                      ex.name.toLowerCase().includes(exerciseSearch.toLowerCase())
+                    ).length === 0 && (
+                      <p className="px-3 py-2 text-xs text-muted-foreground">Sin resultados</p>
+                    )}
+                  </div>
+                )}
+              </div>
+              {items.length === 0 && exerciseSearch.trim().length < 2 && (
+                <p className="text-xs text-muted-foreground mt-2">
+                  Escribe 2+ caracteres para buscar en el catálogo.
+                </p>
+              )}
             </div>
             <div>
               <Label className="text-sm">Nota de cambio</Label>
@@ -700,12 +833,12 @@ function RoutineModule({ clientId }: { clientId: string }) {
       <div className="border border-border rounded-lg overflow-hidden">
         <div className="px-4 py-3 bg-muted/30 flex items-center justify-between">
           <div>
-            <p className="text-sm font-semibold text-foreground flex items-center gap-2">
+            <div className="text-sm font-semibold text-foreground flex items-center gap-2">
               {plan.title}
               {isProposal && (
                 <Badge className="bg-accent/15 text-accent border-0 text-[10px]">Propuesta</Badge>
               )}
-            </p>
+            </div>
             <p className="text-xs text-muted-foreground mt-0.5">
               {plan.weeks} semanas &middot; Actualizada {formatDateLong(plan.updatedAt)}
             </p>
@@ -953,7 +1086,7 @@ export function TrainerClientDetail({ clientId }: { clientId: string }) {
         return
       }
       const data = await res.json()
-      if (data.consent?.status !== "ACTIVE") {
+      if (data.consent?.status !== "active") {
         setConsentRevoked(true)
         return
       }
@@ -1013,8 +1146,8 @@ export function TrainerClientDetail({ clientId }: { clientId: string }) {
   }
 
   const { client, consent } = summary
-  const scopes = new Set(consent.scopes)
-  const hasScope = (s: string) => scopes.has(s)
+  const scopes = new Set(consent.scope)
+  const hasScope = (s: string) => scopes.has(s) || scopes.has("full_access")
 
   return (
     <div className="px-4 py-6 lg:px-8 lg:py-8">
@@ -1043,7 +1176,7 @@ export function TrainerClientDetail({ clientId }: { clientId: string }) {
           </div>
           {/* Scopes summary */}
           <div className="mt-4 flex flex-wrap gap-1.5">
-            {consent.scopes.map((scope) => (
+            {consent.scope.map((scope) => (
               <Badge key={scope} variant="secondary" className="text-[10px]">
                 {scopeLabels[scope] ?? scope}
               </Badge>
@@ -1071,43 +1204,43 @@ export function TrainerClientDetail({ clientId }: { clientId: string }) {
       {!consentRevoked && (
       <div className="flex flex-col gap-6">
         {/* Sessions */}
-        {hasScope("sessions:read") ? (
-          <SessionsModule clientId={clientId} canComment={hasScope("sessions:comment")} />
+        {hasScope("view_progress") ? (
+          <SessionsModule clientId={clientId} canComment={hasScope("view_progress")} />
         ) : (
           <BlockedCard label="sus sesiones" />
         )}
 
         {/* Planned Sessions */}
-        {(hasScope("sessions:read") || hasScope("sessions:write")) && (
+        {(hasScope("view_progress") || hasScope("manage_routines")) && (
           <PlannedSessionsModule
             clientId={clientId}
-            canWrite={hasScope("sessions:write")}
+            canWrite={hasScope("manage_routines")}
           />
         )}
 
         {/* Routine */}
-        {hasScope("routines:read") ? (
+        {hasScope("view_routines") ? (
           <RoutineModule clientId={clientId} />
         ) : (
           <BlockedCard label="su rutina" />
         )}
 
         {/* Progress */}
-        {hasScope("progress:read") ? (
+        {hasScope("view_progress") ? (
           <ProgressModule clientId={clientId} />
         ) : (
           <BlockedCard label="su progreso" />
         )}
 
         {/* PRs */}
-        {hasScope("prs:read") ? (
+        {hasScope("view_personal_records") ? (
           <PRsModule clientId={clientId} />
         ) : (
           <BlockedCard label="sus records personales" />
         )}
 
         {/* Achievements */}
-        {hasScope("achievements:read") ? (
+        {hasScope("view_achievements") ? (
           <AchievementsModule clientId={clientId} />
         ) : (
           <BlockedCard label="sus logros" />
