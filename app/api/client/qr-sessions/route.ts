@@ -1,4 +1,5 @@
-import { NextResponse } from "next/server"
+import { NextRequest, NextResponse } from "next/server"
+import { requireRoleFromRequest } from "@/lib/auth/guards"
 import { createAdminClient, createClient } from "@/lib/supabase/server"
 
 interface SetData {
@@ -434,29 +435,26 @@ async function unlockXpAchievements(
   }
 }
 
-export async function POST(request: Request) {
-  const supabase = await createClient()
+export async function POST(request: NextRequest) {
+  const sessionOrResponse = await requireRoleFromRequest(request, ["USER"])
+  if (sessionOrResponse instanceof NextResponse) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+  }
+
+  const supabase = await createClient(request)
 
   try {
-    const {
-      data: { user },
-    } = await supabase.auth.getUser()
-
-    if (!user) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
-    }
-
     const { data: profile } = await supabase
       .from("profiles")
       .select("gym_id")
-      .eq("id", user.id)
+      .eq("id", sessionOrResponse.userId)
       .single()
 
     if (!profile || !profile.gym_id) {
       return NextResponse.json({ error: "User profile or gym not found" }, { status: 404 })
     }
 
-    const athleteId = user.id
+    const athleteId = sessionOrResponse.userId
     const gymId = profile.gym_id
 
     const rawBody: unknown = await request.json()
