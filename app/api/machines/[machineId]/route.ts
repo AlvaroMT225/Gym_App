@@ -11,7 +11,7 @@ export async function GET(
   if (sessionOrResponse instanceof NextResponse) return sessionOrResponse
 
   try {
-    const supabase = await createClient()
+    const supabase = await createClient(request)
     const userId = sessionOrResponse.userId
 
     const { data: profile, error: profileError } = await supabase

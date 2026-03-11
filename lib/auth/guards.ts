@@ -31,8 +31,8 @@ function normalizeRole(role: string): AppRole {
  * Obtiene el usuario autenticado y su perfil desde Supabase.
  * Para uso en Route Handlers y Server Actions.
  */
-export async function getAuthUserWithProfile() {
-  const supabase = await createClient()
+export async function getAuthUserWithProfile(request?: Request) {
+  const supabase = await createClient(request)
   const { data: { user }, error } = await supabase.auth.getUser()
 
   if (error || !user) return null
@@ -66,15 +66,15 @@ export async function requireAuth(): Promise<GuardResult | NextResponse> {
  * Requiere rol especifico. Acepta roles nuevos ("athlete","coach","admin")
  * y legacy ("USER","TRAINER","ADMIN") para compatibilidad con rutas existentes.
  *
- * @param _request - Parametro mantenido por compatibilidad de firma, no se usa
+ * @param request - Route request usada para auth por cookies web o Bearer mobile
  * @param allowedRoles - Roles permitidos (nuevos o legacy)
  * @returns GuardResult con { userId, email, role } o NextResponse (401/403)
  */
 export async function requireRoleFromRequest(
-  _request: unknown,
+  request: Request,
   allowedRoles: string[]
 ): Promise<GuardResult | NextResponse> {
-  const result = await getAuthUserWithProfile()
+  const result = await getAuthUserWithProfile(request)
   if (!result) return unauthorizedResponse('No autorizado - sesion invalida')
 
   const userRole = result.profile.role as AppRole
