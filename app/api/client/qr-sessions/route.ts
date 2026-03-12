@@ -45,6 +45,7 @@ type SupabaseClient = Awaited<ReturnType<typeof createClient>>
 type RankingRegion = "upper" | "lower"
 
 const HIGH_FP_THRESHOLD = 1.2
+const MIN_SESSION_SETS = 2
 
 function toNullableRank(value: unknown): number | null {
   if (typeof value === "number" && Number.isFinite(value) && value > 0) {
@@ -464,6 +465,13 @@ export async function POST(request: NextRequest) {
     }
 
     const { machine_id, sets_data, notes } = body
+
+    if (sets_data.length < MIN_SESSION_SETS) {
+      return NextResponse.json(
+        { error: "Debes registrar al menos 2 sets para finalizar la sesion." },
+        { status: 400 }
+      )
+    }
 
     const totalVolume = sets_data.reduce((acc, set) => acc + set.weight * set.reps, 0)
 
