@@ -2,14 +2,19 @@ import { NextRequest, NextResponse } from "next/server"
 import { requireRoleFromRequest } from "@/lib/auth/guards"
 import { createAdminClient, createClient } from "@/lib/supabase/server"
 
-interface SetData {
+type WeightUnit = "kg" | "lb"
+
+interface NormalizedSetData {
   weight: number
   reps: number
+  entered_weight: number
+  entered_weight_unit: WeightUnit
+  weight_kg: number
 }
 
 interface QrSessionRequestBody {
   machine_id: string
-  sets_data: SetData[]
+  sets_data: NormalizedSetData[]
   notes?: string
 }
 
@@ -46,6 +51,8 @@ type RankingRegion = "upper" | "lower"
 
 const HIGH_FP_THRESHOLD = 1.2
 const MIN_SESSION_SETS = 2
+const LB_TO_KG = 0.45359237
+const CANONICAL_KG_DECIMALS = 4
 
 function toNullableRank(value: unknown): number | null {
   if (typeof value === "number" && Number.isFinite(value) && value > 0) {
@@ -189,6 +196,28 @@ function toNonNegativeNumber(value: unknown): number {
   return 0
 }
 
+function roundToDecimals(value: number, decimals: number): number {
+  if (!Number.isFinite(value)) {
+    return 0
+  }
+
+  const factor = 10 ** decimals
+  return Math.round(value * factor) / factor
+}
+
+function toWeightUnit(value: unknown): WeightUnit | null {
+  if (value === "kg" || value === "lb") {
+    return value
+  }
+
+  return null
+}
+
+function normalizeWeightToKg(weight: number, unit: WeightUnit): number {
+  const normalized = unit === "lb" ? weight * LB_TO_KG : weight
+  return roundToDecimals(normalized, CANONICAL_KG_DECIMALS)
+}
+
 function normalizeName(value: string): string {
   return value
     .normalize("NFD")
@@ -197,24 +226,33 @@ function normalizeName(value: string): string {
     .toLowerCase()
 }
 
-function parseSetsData(value: unknown): SetData[] | null {
+function parseSetsData(value: unknown): NormalizedSetData[] | null {
   if (!Array.isArray(value) || value.length === 0) {
     return null
   }
 
-  const sets: SetData[] = []
+  const sets: NormalizedSetData[] = []
   for (const item of value) {
     if (!isRecord(item)) {
       return null
     }
 
-    const weight = toNonNegativeNumber(item.weight)
+    const enteredWeight = toNonNegativeNumber(item.weight)
     const reps = toNonNegativeNumber(item.reps)
-    if (weight <= 0 || reps <= 0) {
+    const enteredWeightUnit = toWeightUnit(item.weight_unit) ?? "kg"
+    const weightKg = normalizeWeightToKg(enteredWeight, enteredWeightUnit)
+
+    if (enteredWeight <= 0 || reps <= 0 || weightKg <= 0) {
       return null
     }
 
-    sets.push({ weight, reps })
+    sets.push({
+      weight: weightKg,
+      reps,
+      entered_weight: roundToDecimals(enteredWeight, CANONICAL_KG_DECIMALS),
+      entered_weight_unit: enteredWeightUnit,
+      weight_kg: weightKg,
+    })
   }
 
   return sets
@@ -473,7 +511,7 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    const totalVolume = sets_data.reduce((acc, set) => acc + set.weight * set.reps, 0)
+    const totalVolume = sets_data.reduce((acc, set) => acc + set.weight_kg * set.reps, 0)
 
     const { data: machine, error: machineError } = await supabase
       .from("machines")
@@ -666,3 +704,6 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: message }, { status: 500 })
   }
 }
+
+
+
