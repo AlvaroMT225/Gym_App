@@ -8,6 +8,7 @@ import {
   TrendingUp,
   Calendar,
   Filter,
+  Star,
 } from "lucide-react"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
@@ -30,6 +31,12 @@ type Range = "7" | "30" | "90"
 interface StatsResponse {
   currentStreak: number
   totalPoints: number
+  xp_total: number
+  xp_total_formatted: string
+  xp_by_region: {
+    upper: number
+    lower: number
+  }
 }
 
 interface WorkoutSessionSummary {
@@ -65,6 +72,11 @@ interface PersonalRecordsResponse {
   records?: PersonalRecordSummary[]
 }
 
+interface XpHistoryPoint {
+  week: string
+  xp: number
+}
+
 function getRecordTypeLabel(recordType: string) {
   switch (recordType) {
     case "1rm":
@@ -80,15 +92,81 @@ function getRecordTypeLabel(recordType: string) {
   }
 }
 
+function toNonNegativeNumber(value: unknown): number {
+  if (typeof value !== "number" || !Number.isFinite(value)) {
+    return 0
+  }
+
+  return value >= 0 ? value : 0
+}
+
+function formatXpTotal(value: number): string {
+  return `${new Intl.NumberFormat("en-US").format(toNonNegativeNumber(value))} XP`
+}
+
+function formatXpValue(value: number): string {
+  return `${formatNumber(toNonNegativeNumber(value))} XP`
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null
+}
+
+function readNumberField(row: unknown, field: keyof StatsResponse): number {
+  if (!isRecord(row)) {
+    return 0
+  }
+
+  return toNonNegativeNumber(row[field])
+}
+
+function readStringField(row: unknown, field: keyof StatsResponse): string | null {
+  if (!isRecord(row)) {
+    return null
+  }
+
+  const value = row[field]
+  return typeof value === "string" ? value : null
+}
+
+function readXpByRegion(row: unknown): StatsResponse["xp_by_region"] {
+  if (!isRecord(row)) {
+    return { upper: 0, lower: 0 }
+  }
+
+  const region = row["xp_by_region"]
+  if (!isRecord(region)) {
+    return { upper: 0, lower: 0 }
+  }
+
+  return {
+    upper: toNonNegativeNumber(region["upper"]),
+    lower: toNonNegativeNumber(region["lower"]),
+  }
+}
+
+const EMPTY_STATS: StatsResponse = {
+  currentStreak: 0,
+  totalPoints: 0,
+  xp_total: 0,
+  xp_total_formatted: "0 XP",
+  xp_by_region: {
+    upper: 0,
+    lower: 0,
+  },
+}
+
 export function ProgressView() {
   const [range, setRange] = useState<Range>("30")
   const [machineFilter, setMachineFilter] = useState<string>("all")
-  const [stats, setStats] = useState<StatsResponse>({ currentStreak: 0, totalPoints: 0 })
+  const [stats, setStats] = useState<StatsResponse>(EMPTY_STATS)
   const [sessions, setSessions] = useState<WorkoutSessionSummary[]>([])
   const [records, setRecords] = useState<PersonalRecordSummary[]>([])
+  const [xpHistory, setXpHistory] = useState<XpHistoryPoint[]>([])
   const [loadingStats, setLoadingStats] = useState(true)
   const [loadingSessions, setLoadingSessions] = useState(true)
   const [loadingRecords, setLoadingRecords] = useState(true)
+  const [loadingXpHistory, setLoadingXpHistory] = useState(true)
   const [error, setError] = useState<string | null>(null)
 
   useEffect(() => {
@@ -97,21 +175,31 @@ export function ProgressView() {
     const loadStats = async () => {
       setLoadingStats(true)
       try {
-        const response = await fetch("/api/user/stats", { cache: "no-store" })
+        const response = await fetch("/api/client/progress", { cache: "no-store" })
         if (!response.ok) {
           throw new Error("stats_request_failed")
         }
 
-        const json = (await response.json()) as Partial<StatsResponse>
+        const json: unknown = await response.json()
         if (cancelled) return
 
+        const xpTotal = readNumberField(json, "xp_total")
+        const xpTotalFormattedValue = readStringField(json, "xp_total_formatted")
+        const xpTotalFormatted =
+          typeof xpTotalFormattedValue === "string" && xpTotalFormattedValue.trim().length > 0
+            ? xpTotalFormattedValue
+            : formatXpTotal(xpTotal)
+
         setStats({
-          currentStreak: typeof json.currentStreak === "number" ? json.currentStreak : 0,
-          totalPoints: typeof json.totalPoints === "number" ? json.totalPoints : 0,
+          currentStreak: readNumberField(json, "currentStreak"),
+          totalPoints: readNumberField(json, "totalPoints"),
+          xp_total: xpTotal,
+          xp_total_formatted: xpTotalFormatted,
+          xp_by_region: readXpByRegion(json),
         })
       } catch {
         if (cancelled) return
-        setStats({ currentStreak: 0, totalPoints: 0 })
+        setStats(EMPTY_STATS)
         setError("No fue posible cargar tu progreso")
       } finally {
         if (!cancelled) setLoadingStats(false)
@@ -181,6 +269,50 @@ export function ProgressView() {
   useEffect(() => {
     let cancelled = false
 
+    const loadXpHistory = async () => {
+      setLoadingXpHistory(true)
+      try {
+        const response = await fetch("/api/client/progress/xp-history", { cache: "no-store" })
+        if (!response.ok) {
+          throw new Error("xp_history_request_failed")
+        }
+
+        const json: unknown = await response.json()
+        if (cancelled) return
+
+        const history = Array.isArray(json)
+          ? json
+              .filter((item): item is Record<string, unknown> => isRecord(item))
+              .map((item) => {
+                const week = typeof item.week === "string" ? item.week : ""
+                return {
+                  week,
+                  xp: toNonNegativeNumber(item.xp),
+                }
+              })
+              .filter((item) => item.week.length > 0)
+          : []
+
+        setXpHistory(history)
+      } catch {
+        if (cancelled) return
+        setXpHistory([])
+        setError("No fue posible cargar tu progreso")
+      } finally {
+        if (!cancelled) setLoadingXpHistory(false)
+      }
+    }
+
+    void loadXpHistory()
+
+    return () => {
+      cancelled = true
+    }
+  }, [])
+
+  useEffect(() => {
+    let cancelled = false
+
     const loadRecords = async () => {
       setLoadingRecords(true)
       try {
@@ -231,7 +363,7 @@ export function ProgressView() {
     }
   }, [])
 
-  const isLoading = loadingStats || loadingSessions || loadingRecords
+  const isLoading = loadingStats || loadingSessions || loadingRecords || loadingXpHistory
 
   // Filter sessions by range and machine
   const filteredSessions = useMemo(() => {
@@ -297,6 +429,14 @@ export function ProgressView() {
     }
     return points
   }, [filteredRecords])
+
+  const xpHistoryChartData = useMemo(() => {
+    return xpHistory.map((point) => ({
+      week: point.week,
+      xp: point.xp,
+      weekLabel: point.week.slice(5),
+    }))
+  }, [xpHistory])
 
   // Consistency: days with sessions in range
   const consistencyDays = useMemo(() => {
@@ -364,7 +504,7 @@ export function ProgressView() {
       </div>
 
       {/* KPI Cards */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+      <div className="grid grid-cols-2 lg:grid-cols-5 gap-3">
         <Card className="border border-border hover:shadow-md transition-all duration-200">
           <CardContent className="flex flex-col items-center py-4 text-center">
             <div className="flex items-center justify-center w-10 h-10 rounded-lg bg-accent/15 mb-2">
@@ -401,10 +541,37 @@ export function ProgressView() {
             <p className="text-xs text-muted-foreground">Dias de racha</p>
           </CardContent>
         </Card>
+        <Card className="border border-border hover:shadow-md transition-all duration-200">
+          <CardContent className="flex flex-col items-center py-4 text-center">
+            <div className="flex items-center justify-center w-10 h-10 rounded-lg bg-primary/10 mb-2">
+              <Star className="w-5 h-5 text-primary" />
+            </div>
+            <p className="text-2xl font-bold text-foreground">{stats.xp_total_formatted}</p>
+            <p className="text-xs text-muted-foreground">XP Total</p>
+          </CardContent>
+        </Card>
+      </div>
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 lg:max-w-xl">
+        <Card className="border border-border">
+          <CardContent className="py-3">
+            <p className="text-xs text-muted-foreground">Tren Superior</p>
+            <p className="text-lg font-semibold text-foreground">
+              {formatXpValue(stats.xp_by_region.upper)}
+            </p>
+          </CardContent>
+        </Card>
+        <Card className="border border-border">
+          <CardContent className="py-3">
+            <p className="text-xs text-muted-foreground">Tren Inferior</p>
+            <p className="text-lg font-semibold text-foreground">
+              {formatXpValue(stats.xp_by_region.lower)}
+            </p>
+          </CardContent>
+        </Card>
       </div>
 
       {/* Charts */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
         {/* Weekly Volume Bar Chart */}
         <Card className="border border-border">
           <CardHeader className="pb-2">
@@ -457,6 +624,41 @@ export function ProgressView() {
               ) : (
                 <div className="flex items-center justify-center h-full">
                   <p className="text-sm text-muted-foreground">Sin datos de PR para el filtro actual</p>
+                </div>
+              )}
+            </div>
+          </CardContent>
+        </Card>
+        <Card className="border border-border">
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm font-semibold flex items-center gap-2">
+              <Star className="w-4 h-4 text-primary" />
+              XP semanal
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="h-52">
+              {loadingXpHistory ? (
+                <div className="flex items-center justify-center h-full">
+                  <p className="text-sm text-muted-foreground">Cargando XP semanal...</p>
+                </div>
+              ) : xpHistoryChartData.length > 0 ? (
+                <ResponsiveContainer width="100%" height="100%">
+                  <BarChart data={xpHistoryChartData}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
+                    <XAxis dataKey="weekLabel" tick={{ fontSize: 11, fill: "hsl(var(--muted-foreground))" }} />
+                    <YAxis tick={{ fontSize: 11, fill: "hsl(var(--muted-foreground))" }} />
+                    <Tooltip
+                      contentStyle={{ backgroundColor: "hsl(var(--card))", border: "1px solid hsl(var(--border))", borderRadius: 8, fontSize: 12 }}
+                      labelStyle={{ color: "hsl(var(--foreground))" }}
+                      formatter={(value: number) => [`${formatNumber(value)} XP`, "XP"]}
+                    />
+                    <Bar dataKey="xp" fill="hsl(var(--accent))" radius={[4, 4, 0, 0]} />
+                  </BarChart>
+                </ResponsiveContainer>
+              ) : (
+                <div className="flex items-center justify-center h-full">
+                  <p className="text-sm text-muted-foreground">Aún no hay XP por QR en estas semanas</p>
                 </div>
               )}
             </div>

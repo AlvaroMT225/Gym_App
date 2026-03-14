@@ -20,6 +20,8 @@ import { Badge } from "@/components/ui/badge"
 import { Separator } from "@/components/ui/separator"
 import { Textarea } from "@/components/ui/textarea"
 import { Skeleton } from "@/components/ui/skeleton"
+export const dynamic = 'force-dynamic'
+
 
 interface AdminProfile {
   id: string

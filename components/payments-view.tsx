@@ -11,16 +11,19 @@ import {
   Users,
   Receipt,
   Info,
+  Sparkles,
 } from "lucide-react"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
+import { Skeleton } from "@/components/ui/skeleton"
 import { useStore } from "@/lib/store"
 import { useAuth } from "@/lib/auth/auth-context"
 import { formatDateLong } from "@/lib/utils"
+import { toast } from "sonner"
 
-// ── Status display configs (unchanged) ───────────────────────
+// ── Status display configs ─────────────────────────────────────
 
 const statusConfig = {
   "al dia": { color: "bg-primary/10 text-primary", icon: CheckCircle2, label: "Al dia" },
@@ -34,20 +37,35 @@ const memberStatusConfig = {
   vencido: { color: "bg-destructive/10 text-destructive", label: "Vencido" },
 }
 
-// ── DB → UI label maps ────────────────────────────────────────
+// ── Plan type maps ─────────────────────────────────────────────
 
 const PLAN_LABELS: Record<string, string> = {
-  basic: "Básico",
-  premium: "Premium",
-  vip: "VIP",
-  custom: "Personalizado",
+  daily: "Diario",
+  weekly: "Semanal",
+  biweekly: "Quincenal",
+  monthly: "Mensual",
+  quarterly: "Trimestral",
+  annual: "Anual",
 }
+
+// Days per plan type — used for savings calculation
+const PLAN_DAYS: Record<string, number> = {
+  daily: 1,
+  weekly: 7,
+  biweekly: 15,
+  monthly: 30,
+  quarterly: 90,
+  annual: 365,
+}
+
+const PLAN_TYPE_ORDER = ["daily", "weekly", "biweekly", "monthly", "quarterly", "annual"]
 
 const METHOD_LABELS: Record<string, string> = {
   cash: "Efectivo",
   card: "Tarjeta",
   transfer: "Transferencia",
   app: "App",
+  stripe: "Pago online",
 }
 
 const PAYMENT_STATUS_LABELS: Record<string, string> = {
@@ -58,7 +76,15 @@ const PAYMENT_STATUS_LABELS: Record<string, string> = {
   refunded: "Reembolsado",
 }
 
-// ── API DTOs ──────────────────────────────────────────────────
+const MEMBERSHIP_STATUS_LABELS: Record<string, string> = {
+  active: "Activo",
+  pending: "Pendiente",
+  expired: "Vencido",
+  suspended: "Suspendido",
+  inactive: "Inactivo",
+}
+
+// ── API DTOs ───────────────────────────────────────────────────
 
 interface MembershipDto {
   id: string
@@ -96,10 +122,23 @@ interface PayAlert {
   date: string
 }
 
-// ── Component ─────────────────────────────────────────────────
+interface PlanPrice {
+  id: string
+  plan_type: string
+  price: number
+  is_active: boolean
+}
+
+interface CurrentPlan {
+  plan_type: string | null
+  price_paid: number | null
+  status: string
+  end_date: string | null
+}
+
+// ── Component ──────────────────────────────────────────────────
 
 export function PaymentsView() {
-  // Admin tab data stays in the store (not migrated in this phase)
   const { gymMembers, markPaymentReceived, sendReminder } = useStore()
   const { hasPermission } = useAuth()
 
@@ -108,6 +147,11 @@ export function PaymentsView() {
   const [nextPayment, setNextPayment] = useState<NextPaymentDto | null>(null)
   const [paymentHistory, setPaymentHistory] = useState<PaymentHistoryItem[]>([])
   const [loading, setLoading] = useState(true)
+
+  // Available plans
+  const [planPrices, setPlanPrices] = useState<PlanPrice[]>([])
+  const [currentPlan, setCurrentPlan] = useState<CurrentPlan | null>(null)
+  const [plansLoading, setPlansLoading] = useState(true)
 
   useEffect(() => {
     async function fetchAll() {
@@ -134,14 +178,40 @@ export function PaymentsView() {
       }
     }
 
+    async function fetchPlans() {
+      try {
+        const res = await fetch("/api/client/plan-prices")
+        if (res.ok) {
+          const data = await res.json()
+          const sorted = (data.data as PlanPrice[] ?? []).sort(
+            (a, b) => PLAN_TYPE_ORDER.indexOf(a.plan_type) - PLAN_TYPE_ORDER.indexOf(b.plan_type)
+          )
+          setPlanPrices(sorted)
+          setCurrentPlan(data.currentPlan ?? null)
+        }
+      } catch (err) {
+        console.error("PaymentsView: error fetching plans", err)
+      } finally {
+        setPlansLoading(false)
+      }
+    }
+
     fetchAll()
+    fetchPlans()
   }, [])
 
-  // Derive UI status from DB membership status
+  // Derive UI status from membership status + end_date (single source of truth)
   const uiStatus = useMemo<"al dia" | "por vencer" | "vencido">(() => {
     if (!membership) return "al dia"
+    if (membership.status === "active") {
+      if (!membership.endDate) return "al dia"
+      const daysLeft = Math.ceil(
+        (new Date(membership.endDate).getTime() - Date.now()) / (1000 * 60 * 60 * 24)
+      )
+      // ≤7 days left → "por vencer"; already past → "por vencer" (not "vencido" while status=active)
+      return daysLeft > 7 ? "al dia" : "por vencer"
+    }
     switch (membership.status) {
-      case "active":    return "al dia"
       case "pending":   return "por vencer"
       case "expired":
       case "suspended":
@@ -150,49 +220,80 @@ export function PaymentsView() {
     }
   }, [membership])
 
-  // Human-readable plan label
+  // Human-readable plan label (supports both old and new enum for backward compat)
   const planLabel = useMemo(() => {
     const raw = membership?.planType ?? ""
     return PLAN_LABELS[raw] ?? raw ?? "—"
   }, [membership])
 
-  // Date to show for next due payment
-  const nextDueDate = nextPayment?.dueDate ?? membership?.endDate ?? ""
+  // "Próximo pago" — reads ONLY from the earliest pending payment in paymentHistory.
+  // No calculation, no fallback to nextPayment or membership dates.
+  const nextDueDate = useMemo<string | null>(() => {
+    const pending = paymentHistory
+      .filter((p) => p.status === "pending" && p.dueDate)
+      .sort((a, b) => ((a.dueDate ?? "") < (b.dueDate ?? "") ? -1 : 1))[0]
+    return pending?.dueDate ?? null
+  }, [paymentHistory])
 
-  // Derive alerts from next payment state
+  // Alerts — derived strictly from paymentHistory statuses and nextDueDate.
+  // Never reads nextPayment.dueDate (which can be a computed/stale date from the API).
   const alerts = useMemo<PayAlert[]>(() => {
-    if (!nextPayment) return []
-
     const now = new Date()
-    const dueDate = nextPayment.dueDate ? new Date(nextPayment.dueDate) : null
-    const daysUntilDue = dueDate
-      ? Math.ceil((dueDate.getTime() - now.getTime()) / (1000 * 60 * 60 * 24))
-      : null
 
-    if (nextPayment.status === "overdue") {
-      return [
-        {
-          id: "alert-overdue",
-          message: "Tu pago está vencido. Contacta al gym para regularizar tu situación.",
-          type: "danger",
-          date: now.toISOString(),
-        },
-      ]
+    // Red: any overdue payment on record
+    const hasOverdue = paymentHistory.some((p) => p.status === "overdue")
+    if (hasOverdue) {
+      return [{
+        id: "alert-overdue",
+        message: "Tu pago está vencido. Contacta al gym para regularizar tu situación.",
+        type: "danger",
+        date: now.toISOString(),
+      }]
     }
 
-    if (nextPayment.status === "pending" && daysUntilDue !== null && daysUntilDue <= 7) {
-      return [
-        {
+    if (nextDueDate) {
+      const daysUntilDue = Math.ceil(
+        (new Date(nextDueDate).getTime() - now.getTime()) / (1000 * 60 * 60 * 24)
+      )
+      // Red: pending payment whose due_date is already past
+      if (daysUntilDue < 0) {
+        return [{
+          id: "alert-pending-past",
+          message: `Tu pago está vencido desde ${formatDateLong(nextDueDate)}. Contacta al gym.`,
+          type: "danger",
+          date: now.toISOString(),
+        }]
+      }
+      // Yellow: due today or within the next 7 days
+      if (daysUntilDue <= 7) {
+        return [{
           id: "alert-warning",
-          message: `Tu pago vence pronto: ${nextPayment.dueDate ? formatDateLong(nextPayment.dueDate) : ""}. Tenlo listo.`,
+          message: `Tu pago vence pronto: ${formatDateLong(nextDueDate)}. Tenlo listo.`,
           type: "warning",
           date: now.toISOString(),
-        },
-      ]
+        }]
+      }
     }
 
     return []
-  }, [nextPayment])
+  }, [paymentHistory, nextDueDate])
+
+  // Savings calculation vs monthly price (reference base)
+  // Formula: monthlyEquivalent = price × (30 / planDays)
+  // savings = round((1 - monthlyEquivalent / monthlyPrice) × 100)
+  const monthlyPrice = useMemo(() => {
+    const monthly = planPrices.find((p) => p.plan_type === "monthly")
+    return monthly ? Number(monthly.price) : null
+  }, [planPrices])
+
+  function getSavingsPct(plan: PlanPrice): number | null {
+    if (!monthlyPrice || plan.plan_type === "monthly") return null
+    const days = PLAN_DAYS[plan.plan_type]
+    if (!days) return null
+    const monthlyEquivalent = Number(plan.price) * (30 / days)
+    if (monthlyEquivalent >= monthlyPrice) return null
+    return Math.round((1 - monthlyEquivalent / monthlyPrice) * 100)
+  }
 
   const canManageBilling = hasPermission("billing:manage")
   const StatusIcon = statusConfig[uiStatus].icon
@@ -206,7 +307,7 @@ export function PaymentsView() {
         )}
       </TabsList>
 
-      {/* USER VIEW */}
+      {/* ── USER VIEW ── */}
       <TabsContent value="user" className="flex flex-col gap-4 mt-0">
         {loading ? (
           <Card className="border border-border">
@@ -216,7 +317,7 @@ export function PaymentsView() {
           </Card>
         ) : (
           <>
-            {/* Alerts derived from payment status */}
+            {/* Alerts */}
             {alerts.map((alert) => (
               <Card
                 key={alert.id}
@@ -241,7 +342,7 @@ export function PaymentsView() {
               </Card>
             ))}
 
-            {/* Status card */}
+            {/* Membresía actual */}
             {!membership ? (
               <Card className="border border-dashed border-muted-foreground/20 bg-muted/30 shadow-none">
                 <CardContent className="flex flex-col items-center py-8 text-center">
@@ -269,7 +370,9 @@ export function PaymentsView() {
                         </Badge>
                       </div>
                       <p className="text-sm text-muted-foreground">
-                        Proximo pago: {nextDueDate ? formatDateLong(nextDueDate) : "—"}
+                        {nextDueDate
+                          ? `Próximo pago: ${formatDateLong(nextDueDate)}`
+                          : "Sin pagos pendientes"}
                       </p>
                     </div>
                   </div>
@@ -283,16 +386,117 @@ export function PaymentsView() {
                     <div className="bg-muted rounded-lg p-3 text-center">
                       <Receipt className="w-4 h-4 text-muted-foreground mx-auto mb-1" />
                       <p className="text-sm font-semibold text-foreground">
-                        ${paymentHistory[0]?.amount ?? nextPayment?.amount ?? 0}
+                        ${membership.pricePaid ?? nextPayment?.amount ?? 0}
                       </p>
                       <p className="text-xs text-muted-foreground">Monto</p>
                     </div>
                   </div>
+
+                  {/* Current plan details from plan-prices API */}
+                  {currentPlan && (
+                    <div className="mt-3 flex items-center gap-2 text-xs text-muted-foreground">
+                      <span>
+                        Estado membresía:{" "}
+                        <span className="font-medium text-foreground">
+                          {MEMBERSHIP_STATUS_LABELS[currentPlan.status] ?? currentPlan.status}
+                        </span>
+                      </span>
+                      {currentPlan.end_date && (
+                        <>
+                          <span>·</span>
+                          <span>
+                            Vence:{" "}
+                            <span className="font-medium text-foreground">
+                              {formatDateLong(currentPlan.end_date)}
+                            </span>
+                          </span>
+                        </>
+                      )}
+                    </div>
+                  )}
                 </CardContent>
               </Card>
             )}
 
-            {/* Payment history */}
+            {/* ── Planes Disponibles ── */}
+            <Card className="border border-border">
+              <CardHeader className="pb-3">
+                <CardTitle className="text-sm font-semibold flex items-center gap-2">
+                  <Sparkles className="w-4 h-4 text-primary" />
+                  Planes Disponibles
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="flex flex-col gap-3">
+                {plansLoading ? (
+                  Array.from({ length: 4 }).map((_, i) => (
+                    <div key={i} className="flex items-center justify-between p-3 rounded-lg border border-border">
+                      <div className="flex flex-col gap-1.5">
+                        <Skeleton className="h-4 w-20" />
+                        <Skeleton className="h-5 w-14" />
+                      </div>
+                      <Skeleton className="h-8 w-24" />
+                    </div>
+                  ))
+                ) : planPrices.length === 0 ? (
+                  <p className="text-sm text-muted-foreground text-center py-4">
+                    No hay planes disponibles en este momento.
+                  </p>
+                ) : (
+                  planPrices.map((plan) => {
+                    const isCurrentPlan =
+                      currentPlan?.plan_type === plan.plan_type ||
+                      membership?.planType === plan.plan_type
+                    const savings = getSavingsPct(plan)
+
+                    return (
+                      <div
+                        key={plan.id}
+                        className={`flex items-center justify-between p-3 rounded-lg border transition-colors ${
+                          isCurrentPlan
+                            ? "border-primary/40 bg-primary/5"
+                            : "border-border hover:border-border/80 hover:bg-muted/30"
+                        }`}
+                      >
+                        <div className="flex flex-col gap-0.5 min-w-0">
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <span className="text-sm font-semibold text-foreground">
+                              {PLAN_LABELS[plan.plan_type] ?? plan.plan_type}
+                            </span>
+                            {isCurrentPlan && (
+                              <Badge className="bg-primary/15 text-primary border-0 text-xs h-5">
+                                Tu plan actual
+                              </Badge>
+                            )}
+                            {savings !== null && savings > 0 && (
+                              <Badge variant="secondary" className="text-xs h-5 text-green-600 bg-green-500/10 border-0">
+                                Ahorra {savings}%
+                              </Badge>
+                            )}
+                          </div>
+                          <span className="text-lg font-bold text-foreground font-mono">
+                            ${Number(plan.price).toFixed(2)}
+                          </span>
+                        </div>
+                        <Button
+                          size="sm"
+                          variant={isCurrentPlan ? "outline" : "default"}
+                          className="shrink-0 text-xs"
+                          onClick={() =>
+                            toast.info("Pago online próximamente", {
+                              description: `El plan ${PLAN_LABELS[plan.plan_type] ?? plan.plan_type} estará disponible para contratación online muy pronto.`,
+                            })
+                          }
+                        >
+                          {isCurrentPlan ? "Plan activo" : "Contratar"}
+                        </Button>
+                      </div>
+                    )
+                  })
+                )}
+              </CardContent>
+            </Card>
+
+            {/* Historial de pagos */}
             <Card className="border border-border">
               <CardHeader className="pb-2">
                 <CardTitle className="text-sm font-semibold flex items-center gap-2">
@@ -337,7 +541,7 @@ export function PaymentsView() {
         )}
       </TabsContent>
 
-      {/* GYM PANEL VIEW - ADMIN ONLY — untouched */}
+      {/* ── GYM PANEL VIEW - ADMIN ONLY ── */}
       {canManageBilling && (
         <TabsContent value="gym" className="flex flex-col gap-4 mt-0">
           {/* Summary */}
@@ -386,7 +590,7 @@ export function PaymentsView() {
                   >
                     <div className="flex items-center gap-3">
                       <div className="flex items-center justify-center w-8 h-8 rounded-full bg-primary/10 text-primary text-xs font-bold">
-                        {member.name.split(" ").map((n) => n[0]).join("")}
+                        {member.name.split(" ").map((n: string) => n[0]).join("")}
                       </div>
                       <div>
                         <p className="text-sm font-medium text-foreground">{member.name}</p>

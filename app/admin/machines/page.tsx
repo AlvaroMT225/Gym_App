@@ -14,6 +14,8 @@ import {
   Copy,
   Check,
   Dumbbell,
+  Download,
+  FileDown,
 } from "lucide-react"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
@@ -43,6 +45,8 @@ import {
 import { Skeleton } from "@/components/ui/skeleton"
 import { Checkbox } from "@/components/ui/checkbox"
 import { Textarea } from "@/components/ui/textarea"
+export const dynamic = 'force-dynamic'
+
 
 /* ---------- constants ---------- */
 
@@ -90,6 +94,8 @@ const statusConfig: Record<string, {
 interface QrCodeData {
   id: string
   code: string
+  payload: string
+  displayCode: string
   scansCount: number
   isActive: boolean
   lastScannedAt: string | null
@@ -158,7 +164,7 @@ function toggleMuscle(current: string[], value: string): string[] {
 }
 
 function formatDate(dateStr: string | null) {
-  if (!dateStr) return "—"
+  if (!dateStr) return "-"
   return new Date(dateStr).toLocaleDateString("es-EC", { day: "2-digit", month: "short", year: "numeric" })
 }
 
@@ -177,6 +183,9 @@ export default function MachinesPage() {
   const [qrOpen, setQrOpen] = useState(false)
   const [selectedMachine, setSelectedMachine] = useState<Machine | null>(null)
   const [copied, setCopied] = useState(false)
+  const [qrDataUrl, setQrDataUrl] = useState<string | null>(null)
+  const [downloading, setDownloading] = useState(false)
+  const [pdfGenerating, setPdfGenerating] = useState(false)
 
   // Create sheet
   const [createOpen, setCreateOpen] = useState(false)
@@ -212,6 +221,19 @@ export default function MachinesPage() {
   }, [])
 
   useEffect(() => { loadMachines() }, [loadMachines])
+
+  // Generate real QR image when modal opens
+  useEffect(() => {
+    if (qrOpen && selectedMachine?.qrCode) {
+      import("qrcode").then((m) => m.default).then((QRCode) =>
+        QRCode.toDataURL(selectedMachine.qrCode!.payload ?? selectedMachine.qrCode!.code, {
+          width: 240, margin: 2, color: { dark: "#000000", light: "#ffffff" },
+        })
+      ).then(setQrDataUrl).catch(() => setQrDataUrl(null))
+    } else {
+      setQrDataUrl(null)
+    }
+  }, [qrOpen, selectedMachine])
 
   /* ---------- filter ---------- */
 
@@ -311,11 +333,183 @@ export default function MachinesPage() {
   /* ---------- QR copy ---------- */
 
   function handleCopyQr() {
-    const code = selectedMachine?.qrCode?.code
-    if (!code) return
-    navigator.clipboard.writeText(code)
+    const payload = selectedMachine?.qrCode?.payload ?? selectedMachine?.qrCode?.code
+    if (!payload) return
+    navigator.clipboard.writeText(payload)
       .then(() => { setCopied(true); setTimeout(() => setCopied(false), 2000) })
       .catch(() => {})
+  }
+
+  /* ---------- QR download (single PNG) ---------- */
+
+  async function handleDownloadQr() {
+    const machine = selectedMachine
+    if (!machine?.qrCode) return
+    setDownloading(true)
+    try {
+      const QRCode = (await import("qrcode")).default
+      const qrPayload = machine.qrCode.payload ?? machine.qrCode.code
+      const qrUrl = await QRCode.toDataURL(qrPayload, {
+        width: 300, margin: 2, color: { dark: "#000000", light: "#ffffff" },
+      })
+
+      const canvas = document.createElement("canvas")
+      canvas.width = 420
+      canvas.height = 520
+      const ctx = canvas.getContext("2d")!
+
+      // White background
+      ctx.fillStyle = "#ffffff"
+      ctx.fillRect(0, 0, canvas.width, canvas.height)
+
+      // Light border
+      ctx.strokeStyle = "#e5e7eb"
+      ctx.lineWidth = 2
+      ctx.strokeRect(1, 1, canvas.width - 2, canvas.height - 2)
+
+      // QR image centered at top
+      const img = new Image()
+      await new Promise<void>((resolve) => { img.onload = () => resolve(); img.src = qrUrl })
+      ctx.drawImage(img, 60, 30, 300, 300)
+
+      // Machine name
+      ctx.fillStyle = "#111827"
+      ctx.font = "bold 20px system-ui, -apple-system, sans-serif"
+      ctx.textAlign = "center"
+      ctx.fillText(machine.name, canvas.width / 2, 370)
+
+      // QR code string (monospace)
+      ctx.fillStyle = "#6b7280"
+      ctx.font = "13px 'Courier New', monospace"
+      ctx.fillText(qrPayload, canvas.width / 2, 398)
+
+      // Location
+      if (machine.location) {
+        ctx.fillStyle = "#9ca3af"
+        ctx.font = "12px system-ui, -apple-system, sans-serif"
+        ctx.fillText(machine.location, canvas.width / 2, 422)
+      }
+
+      // Footer
+      ctx.fillStyle = "#d1d5db"
+      ctx.font = "11px system-ui, -apple-system, sans-serif"
+      ctx.fillText("Minthy Training", canvas.width / 2, 500)
+
+      const link = document.createElement("a")
+      link.href = canvas.toDataURL("image/png")
+      link.download = `QR-${machine.name.replace(/\s+/g, "-")}-${machine.id}.png`
+      link.click()
+    } catch (err) {
+      console.error("Error generating QR PNG:", err)
+    } finally {
+      setDownloading(false)
+    }
+  }
+
+  /* ---------- PDF (all QR codes) ---------- */
+
+  async function handleDownloadPdf() {
+    if (machines.length === 0) return
+    setPdfGenerating(true)
+    try {
+      const [QRCode, { jsPDF }] = await Promise.all([
+        import("qrcode").then((m) => m.default),
+        import("jspdf"),
+      ])
+
+      const doc = new jsPDF({ orientation: "portrait", unit: "mm", format: "letter" })
+      const pageW = 215.9
+      const margin = 14
+      const headerH = 22
+      const cols = 2
+      const rows = 3
+      const cellW = (pageW - margin * 2) / cols
+      const cellH = 76
+      const qrSize = 48
+      const dateStr = new Date().toLocaleDateString("es-EC", { day: "2-digit", month: "long", year: "numeric" })
+
+      const drawHeader = (page: number) => {
+        doc.setFontSize(13)
+        doc.setFont("helvetica", "bold")
+        doc.text("Minthy Training - Códigos QR de Máquinas", pageW / 2, margin, { align: "center" })
+        doc.setFontSize(8)
+        doc.setFont("helvetica", "normal")
+        const pageLabel = page > 1 ? ` - Página ${page}` : ""
+        doc.text(`Generado: ${dateStr}${pageLabel}`, pageW / 2, margin + 6, { align: "center" })
+      }
+
+      drawHeader(1)
+
+      let col = 0
+      let row = 0
+      let pageNum = 1
+      let cellsOnPage = 0
+
+      for (const machine of machines) {
+        if (!machine.qrCode) continue
+
+        // New page when grid is full
+        if (cellsOnPage > 0 && col === 0 && row === 0) {
+          doc.addPage()
+          pageNum++
+          drawHeader(pageNum)
+        }
+
+        const x = margin + col * cellW
+        const y = margin + headerH + row * cellH
+
+        // Cell border
+        doc.setDrawColor(229, 231, 235)
+        doc.setLineWidth(0.3)
+        doc.rect(x + 1, y + 1, cellW - 2, cellH - 2)
+
+        const qrPayload = machine.qrCode.payload ?? machine.qrCode.code
+
+        // QR image
+        try {
+          const qrUrl = await QRCode.toDataURL(qrPayload, {
+            width: 160, margin: 1, color: { dark: "#000000", light: "#ffffff" },
+          })
+          doc.addImage(qrUrl, "PNG", x + (cellW - qrSize) / 2, y + 4, qrSize, qrSize)
+        } catch { /* skip QR image on error */ }
+
+        // Machine name
+        doc.setFontSize(9)
+        doc.setFont("helvetica", "bold")
+        doc.text(machine.name, x + cellW / 2, y + qrSize + 10, { align: "center", maxWidth: cellW - 6 })
+
+        // QR code string
+        doc.setFontSize(7)
+        doc.setFont("courier", "normal")
+        doc.text(qrPayload, x + cellW / 2, y + qrSize + 17, { align: "center" })
+
+        // Location
+        if (machine.location) {
+          doc.setFontSize(7)
+          doc.setFont("helvetica", "normal")
+          doc.text(machine.location, x + cellW / 2, y + qrSize + 23, { align: "center", maxWidth: cellW - 6 })
+        }
+
+        col++
+        cellsOnPage++
+        if (col >= cols) {
+          col = 0
+          row++
+          if (row >= rows) {
+            row = 0
+            col = 0
+            cellsOnPage = 0
+          }
+        }
+      }
+
+      const dateForFile = new Date().toISOString().split("T")[0]
+      doc.save(`QR-Codes-MinthyTraining-${dateForFile}.pdf`)
+    } catch (err) {
+      console.error("Error generating PDF:", err)
+    } finally {
+      setPdfGenerating(false)
+    }
   }
 
   /* ---------- render ---------- */
@@ -330,10 +524,21 @@ export default function MachinesPage() {
             {loading ? "Cargando..." : `${machines.length} máquinas registradas`}
           </p>
         </div>
-        <Button onClick={openCreate} className="gap-2">
-          <Plus className="w-4 h-4" />
-          Nueva máquina
-        </Button>
+        <div className="flex items-center gap-2">
+          <Button
+            variant="outline"
+            onClick={handleDownloadPdf}
+            disabled={pdfGenerating || machines.length === 0}
+            className="gap-2"
+          >
+            <FileDown className="w-4 h-4" />
+            {pdfGenerating ? "Generando PDF..." : "Descargar todos (PDF)"}
+          </Button>
+          <Button onClick={openCreate} className="gap-2">
+            <Plus className="w-4 h-4" />
+            Nueva máquina
+          </Button>
+        </div>
       </div>
 
       {/* KPI Cards */}
@@ -519,7 +724,7 @@ export default function MachinesPage() {
                     {machine.qrCode && (
                       <div className="flex items-center gap-2 text-xs text-muted-foreground">
                         <QrCode className="w-3.5 h-3.5 shrink-0" />
-                        <span className="font-mono truncate">{machine.qrCode.code}</span>
+                        <span className="font-mono truncate">{machine.qrCode.displayCode}</span>
                         <span className="shrink-0 text-[10px]">({machine.qrCode.scansCount} scans)</span>
                       </div>
                     )}
@@ -552,7 +757,7 @@ export default function MachinesPage() {
         </div>
       )}
 
-      {/* ── QR Dialog ── */}
+      {/* QR Dialog */}
       <Dialog open={qrOpen} onOpenChange={setQrOpen}>
         <DialogContent className="sm:max-w-sm">
           <DialogHeader>
@@ -560,40 +765,71 @@ export default function MachinesPage() {
           </DialogHeader>
           {selectedMachine?.qrCode && (
             <div className="flex flex-col items-center gap-4 py-4">
-              <div className="w-48 h-48 rounded-xl border-2 border-dashed border-border flex items-center justify-center bg-muted/30">
-                <div className="text-center px-4">
-                  <QrCode className="w-14 h-14 text-foreground mx-auto mb-2" />
-                  <p className="text-xs font-mono text-muted-foreground break-all">
-                    {selectedMachine.qrCode.code}
-                  </p>
-                </div>
+              {/* QR Image - real generated code */}
+              <div className="w-52 h-52 rounded-xl border border-border flex items-center justify-center bg-white p-2 shadow-sm">
+                {qrDataUrl ? (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img src={qrDataUrl} alt={`QR: ${selectedMachine.qrCode.payload}`} className="w-full h-full object-contain" />
+                ) : (
+                  <div className="flex flex-col items-center justify-center gap-2">
+                    <QrCode className="w-14 h-14 text-muted-foreground animate-pulse" />
+                    <p className="text-xs text-muted-foreground">Generando...</p>
+                  </div>
+                )}
               </div>
+
+              {/* Machine info */}
               <div className="text-center w-full">
                 <p className="text-sm font-semibold text-foreground">{selectedMachine.name}</p>
                 {selectedMachine.location && (
                   <p className="text-xs text-muted-foreground mt-0.5">{selectedMachine.location}</p>
                 )}
-                <div className="flex items-center justify-center gap-4 mt-2 text-xs text-muted-foreground">
+                <div className="mt-2 flex flex-col gap-1 text-left rounded-lg border border-border bg-muted/30 p-3">
+                  <p className="text-[11px] uppercase tracking-wide text-muted-foreground">Payload QR</p>
+                  <p className="text-xs font-mono break-all text-foreground">{selectedMachine.qrCode.payload}</p>
+                  <p className="text-[11px] uppercase tracking-wide text-muted-foreground mt-1">Identificador de máquina</p>
+                  <p className="text-xs font-mono text-foreground">{selectedMachine.id}</p>
+                  {selectedMachine.qrCode.code !== selectedMachine.qrCode.payload && (
+                    <>
+                      <p className="text-[11px] uppercase tracking-wide text-muted-foreground mt-1">Código legacy almacenado</p>
+                      <p className="text-xs font-mono break-all text-muted-foreground">{selectedMachine.qrCode.code}</p>
+                    </>
+                  )}
+                </div>
+                <div className="flex items-center justify-center gap-4 mt-1.5 text-xs text-muted-foreground">
                   <span>{selectedMachine.qrCode.scansCount} escaneos</span>
                   {selectedMachine.qrCode.lastScannedAt && (
                     <span>Último: {formatDate(selectedMachine.qrCode.lastScannedAt)}</span>
                   )}
                 </div>
               </div>
-              <Button
-                variant="outline"
-                className="w-full gap-2"
-                onClick={handleCopyQr}
-              >
-                {copied ? <Check className="w-4 h-4 text-success" /> : <Copy className="w-4 h-4" />}
-                {copied ? "¡Copiado!" : "Copiar código QR"}
-              </Button>
+
+              {/* Action buttons */}
+              <div className="flex gap-2 w-full">
+                <Button
+                  variant="outline"
+                  className="flex-1 gap-2"
+                  onClick={handleCopyQr}
+                >
+                  {copied ? <Check className="w-4 h-4 text-success" /> : <Copy className="w-4 h-4" />}
+                  {copied ? "¡Copiado!" : "Copiar payload"}
+                </Button>
+                <Button
+                  variant="outline"
+                  className="flex-1 gap-2"
+                  onClick={handleDownloadQr}
+                  disabled={downloading || !qrDataUrl}
+                >
+                  <Download className="w-4 h-4" />
+                  {downloading ? "..." : "Descargar QR"}
+                </Button>
+              </div>
             </div>
           )}
         </DialogContent>
       </Dialog>
 
-      {/* ── Create Sheet ── */}
+      {/* Create Sheet */}
       <Sheet open={createOpen} onOpenChange={(open) => { if (!open) { setCreateOpen(false); setCreateSuccess(false) } }}>
         <SheetContent className="w-full sm:max-w-md overflow-y-auto">
           <SheetHeader>
@@ -697,7 +933,7 @@ export default function MachinesPage() {
         </SheetContent>
       </Sheet>
 
-      {/* ── Edit Sheet ── */}
+      {/* Edit Sheet */}
       <Sheet open={editOpen} onOpenChange={(open) => { if (!open) { setEditOpen(false); setEditSaved(false) } }}>
         <SheetContent className="w-full sm:max-w-md overflow-y-auto">
           <SheetHeader>
@@ -815,3 +1051,7 @@ export default function MachinesPage() {
     </div>
   )
 }
+
+
+
+

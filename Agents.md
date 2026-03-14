@@ -86,7 +86,7 @@ Confirmed status:
 - Tarea 4: complete
 - Tarea 5: complete
 - Tarea 6: complete
-- Tarea 7: pending
+- Tarea 7: complete
 - Tarea 8: pending
 
 ## 7) Sub-fase 2.5 current reality
@@ -126,28 +126,31 @@ Confirmed local timer/alarm refinements already working:
 ### Important scope boundary
 Tarea 5 was local/UI behavior only.
 Tarea 6 already closed the real session + XP flow.
-Current backend work is Block 3 unit-aware persistence with canonical kg normalization.
+Block 3 kg/lb backend support is already implemented on the backend side.
+Task 7 deep-link QR payload generation is already validated.
+Current web/backend work is Task 8 fallback without camera using a non-competitive manual path.
 
-## 8) Active task now: Backend Block 3 - kg/lb support
+## 8) Active task now: Task 8 - Fallback sin cámara
 Functional scope:
-- extend `POST /api/client/qr-sessions` so each set may send optional `weight_unit` (`kg` or `lb`),
-- treat missing `weight_unit` as legacy kg input for backward compatibility,
-- persist the original entered value/unit plus canonical normalized kilograms inside `qr_sessions.sets_data`,
-- keep XP, ranking, and business calculations on canonical kilograms only,
-- expose machine history from `GET /api/machines/[machineId]` with fallback-safe fields for old sessions.
+- create a backend-only manual fallback path when camera/permissions are unavailable,
+- persist manual sessions in `manual_training_sessions`, separate from competitive QR sessions,
+- ensure manual sessions remain history-only with no XP, rankings, achievements, badges, or similar side effects,
+- reuse the existing machine/exercise dataset without inventing new catalog content,
+- avoid touching mobile, QR generation, or competitive QR backend logic.
 
-### Block 3 must respect
-- backend only,
-- no mobile changes in this block,
-- no XP formula changes,
-- no ranking formula changes,
-- no weakening of the `<2 sets` rejection,
-- no fake persistence or frontend-only unit illusion.
+### Task 8 must respect
+- backend/web repo only,
+- no mobile changes in this task,
+- no changes to Task 6 session/XP logic,
+- no changes to Task 7 QR/deep-link behavior,
+- no changes to Block 3 kg/lb competitive persistence,
+- no hidden bridge from manual sessions into competitive rewards or rankings.
 
 ### Current backend reality
-- no DB migration is required for this block because `qr_sessions.sets_data` already stores JSONB,
-- old sessions remain readable through a kg fallback when original unit metadata is absent,
-- runtime/manual validation is still required before closing the wider product block in handoff terms.
+- competitive QR sessions still write through `qr_sessions` and feed XP/rankings,
+- manual fallback sessions must write through a separate non-competitive table/path,
+- legacy manual writes through `workout_sessions` are not acceptable for the new fallback design,
+- Task 8 backend work is not enough to close the task until the mobile fallback flow is runtime-validated.
 
 ## 9) Required working method
 Always follow:
@@ -210,6 +213,8 @@ Whenever applicable, require evidence such as:
 - Machine detail already works with Bearer auth.
 - Tarea 5 is already validated and should not be reopened unless a regression appears.
 - The backend now supports unit-aware qr session persistence with canonical kg normalization.
+- Task 7 deep linking is already validated.
+- Task 8 must keep manual sessions non-competitive and history-only.
 
 ## 14) When to update this file
 Update `Agents.md` only when one of these happens:
@@ -233,6 +238,9 @@ Keep it concise, factual, and current.
 If working **right now**, assume:
 - repository may be either web/backend or mobile, so verify workspace first,
 - backend now accepts unit-aware QR session sets through `POST /api/client/qr-sessions`,
+- admin-generated machine QR payloads should now target `minthytraining://machine/{machine.id}`,
+- native external QR scan is already validated for Task 7,
+- manual fallback backend work must use `manual_training_sessions` and never enter the competitive QR pipeline,
 - next mobile work should consume the new `weight_unit` contract and the `history` payload returned by `GET /api/machines/[machineId]`,
 - Tarea 5 and Tarea 6 should stay untouched unless Block 3 integration reveals a direct regression.
 

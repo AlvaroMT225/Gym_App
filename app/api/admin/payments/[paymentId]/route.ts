@@ -30,6 +30,10 @@ interface PaymentRow {
   created_at: string | null
   profile: unknown
   membership: unknown
+  // --- Modificaciones Stripe ---
+  stripe_payment_intent_id: string | null
+  stripe_invoice_id: string | null
+  stripe_checkout_session_id: string | null
 }
 
 function normalizeEmbed<T>(raw: unknown): T | null {
@@ -77,6 +81,7 @@ export async function GET(
         .from("payments")
         .select(
           "id, amount, status, method, reference_code, due_date, paid_at, notes, created_at, " +
+          "stripe_payment_intent_id, stripe_invoice_id, stripe_checkout_session_id, " +
           "profile:profiles!profile_id(id, first_name, last_name, email, phone, avatar_url), " +
           "membership:memberships!membership_id(plan_type)"
         )
@@ -120,6 +125,9 @@ export async function GET(
       paidAt: paymentData.paid_at ?? null,
       notes: paymentData.notes ?? null,
       createdAt: paymentData.created_at ?? null,
+      stripePaymentIntentId: paymentData.stripe_payment_intent_id,
+      stripeInvoiceId: paymentData.stripe_invoice_id,
+      stripeCheckoutSessionId: paymentData.stripe_checkout_session_id,
       member: profile
         ? {
             id: profile.id,
@@ -164,12 +172,12 @@ export async function PUT(
 
     const body = await request.json()
     const { method, referenceCode, notes } = body as {
-      method: "cash" | "card" | "transfer" | "app"
+      method: "cash" | "card" | "transfer" | "app" | "stripe"
       referenceCode?: string
       notes?: string
     }
 
-    if (!["cash", "card", "transfer", "app"].includes(method)) {
+    if (!["cash", "card", "transfer", "app", "stripe"].includes(method)) {
       return NextResponse.json({ error: "Método de pago inválido" }, { status: 400 })
     }
 

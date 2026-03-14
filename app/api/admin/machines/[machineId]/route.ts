@@ -25,6 +25,15 @@ interface MachineRow {
   exercises: unknown
 }
 
+function buildMachineQrPayload(machineId: string): string {
+  return `minthytraining://machine/${machineId}`
+}
+
+function getMachineQrDisplayCode(machineId: string, storedCode: string): string {
+  const payload = buildMachineQrPayload(machineId)
+  return storedCode !== payload ? storedCode : machineId
+}
+
 async function getAdminGymId(adminId: string, supabase: Awaited<ReturnType<typeof createClient>>) {
   const { data, error } = await supabase
     .from("profiles")
@@ -48,7 +57,9 @@ export async function GET(
   try {
     const supabase = await createClient()
     const gymId = await getAdminGymId(sessionOrResponse.userId, supabase)
-    if (!gymId) return NextResponse.json({ error: "No se pudo obtener gym del administrador" }, { status: 500 })
+    if (!gymId) {
+      return NextResponse.json({ error: "No se pudo obtener gym del administrador" }, { status: 500 })
+    }
 
     const [
       { data: rawMachine, error: machineError },
@@ -83,18 +94,33 @@ export async function GET(
 
     const qrRaw = m.qr_codes
     let qrCode: {
-      id: string; code: string; scansCount: number; isActive: boolean
-      lastScannedAt: string | null; qrImageUrl: string | null
+      id: string
+      code: string
+      payload: string
+      displayCode: string
+      scansCount: number
+      isActive: boolean
+      lastScannedAt: string | null
+      qrImageUrl: string | null
     } | null = null
+
     if (qrRaw) {
       const qr = (Array.isArray(qrRaw) ? qrRaw[0] : qrRaw) as {
-        id: string; code: string; scans_count: number; is_active: boolean
-        last_scanned_at: string | null; qr_image_url?: string | null
+        id: string
+        code: string
+        scans_count: number
+        is_active: boolean
+        last_scanned_at: string | null
+        qr_image_url?: string | null
       } | undefined
+
       if (qr) {
+        const payload = buildMachineQrPayload(m.id)
         qrCode = {
           id: qr.id,
           code: qr.code,
+          payload,
+          displayCode: getMachineQrDisplayCode(m.id, qr.code),
           scansCount: qr.scans_count,
           isActive: qr.is_active,
           lastScannedAt: qr.last_scanned_at,
@@ -185,9 +211,15 @@ export async function PUT(
     }
 
     const m = rawData as unknown as {
-      id: string; name: string; description: string | null; status: string
-      equipment_type: string; muscle_groups: string[] | null
-      location: string | null; manufacturer: string | null; model: string | null
+      id: string
+      name: string
+      description: string | null
+      status: string
+      equipment_type: string
+      muscle_groups: string[] | null
+      location: string | null
+      manufacturer: string | null
+      model: string | null
     }
 
     return NextResponse.json({
@@ -226,7 +258,6 @@ export async function DELETE(
     const gymId = await getAdminGymId(sessionOrResponse.userId, supabase)
     if (!gymId) return NextResponse.json({ error: "No se pudo obtener gym del administrador" }, { status: 500 })
 
-    // Delete QR codes first (FK constraint)
     const { error: qrError } = await supabase
       .from("qr_codes")
       .delete()
@@ -237,7 +268,6 @@ export async function DELETE(
       return NextResponse.json({ error: "Error al eliminar códigos QR" }, { status: 500 })
     }
 
-    // Delete machine
     const { error: machineError } = await supabase
       .from("machines")
       .delete()

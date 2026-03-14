@@ -7,33 +7,33 @@ import { machineBodySchema } from "@/lib/validations/admin"
 /* ---------- label maps ---------- */
 
 export const STATUS_LABELS: Record<string, string> = {
-  available:    "Disponible",
-  in_use:       "En uso",
-  maintenance:  "Mantenimiento",
+  available: "Disponible",
+  in_use: "En uso",
+  maintenance: "Mantenimiento",
   out_of_order: "Fuera de servicio",
 }
 
 export const EQUIPMENT_LABELS: Record<string, string> = {
-  machine:        "Máquina",
-  free_weight:    "Peso libre",
-  cable:          "Cable",
-  bodyweight:     "Peso corporal",
-  cardio:         "Cardio",
-  resistance_band:"Banda elástica",
+  machine: "Máquina",
+  free_weight: "Peso libre",
+  cable: "Cable",
+  bodyweight: "Peso corporal",
+  cardio: "Cardio",
+  resistance_band: "Banda elástica",
 }
 
 export const MUSCLE_LABELS: Record<string, string> = {
-  chest:      "Pecho",
-  back:       "Espalda",
-  shoulders:  "Hombros",
-  biceps:     "Bíceps",
-  triceps:    "Tríceps",
-  arms:       "Brazos",
-  legs:       "Piernas",
-  glutes:     "Glúteos",
-  core:       "Core",
-  full_body:  "Cuerpo completo",
-  cardio:     "Cardio",
+  chest: "Pecho",
+  back: "Espalda",
+  shoulders: "Hombros",
+  biceps: "Bíceps",
+  triceps: "Tríceps",
+  arms: "Brazos",
+  legs: "Piernas",
+  glutes: "Glúteos",
+  core: "Core",
+  full_body: "Cuerpo completo",
+  cardio: "Cardio",
 }
 
 /* ---------- types ---------- */
@@ -73,15 +73,36 @@ interface MachineKpiRow {
   status: string
 }
 
+function buildMachineQrPayload(machineId: string): string {
+  return `minthytraining://machine/${machineId}`
+}
+
+function getMachineQrDisplayCode(machineId: string, storedCode: string): string {
+  const payload = buildMachineQrPayload(machineId)
+  return storedCode !== payload ? storedCode : machineId
+}
+
 function mapMachine(m: MachineRow) {
   const qrRaw = m.qr_codes
-  let qrCode: { id: string; code: string; scansCount: number; isActive: boolean; lastScannedAt: string | null } | null = null
+  let qrCode: {
+    id: string
+    code: string
+    payload: string
+    displayCode: string
+    scansCount: number
+    isActive: boolean
+    lastScannedAt: string | null
+  } | null = null
+
   if (qrRaw) {
     const qr = (Array.isArray(qrRaw) ? qrRaw[0] : qrRaw) as QrRef | undefined
     if (qr) {
+      const payload = buildMachineQrPayload(m.id)
       qrCode = {
         id: qr.id,
         code: qr.code,
+        payload,
+        displayCode: getMachineQrDisplayCode(m.id, qr.code),
         scansCount: qr.scans_count,
         isActive: qr.is_active,
         lastScannedAt: qr.last_scanned_at,
@@ -150,8 +171,8 @@ export async function GET(request: NextRequest) {
       .from("machines")
       .select(
         "*, " +
-        "qr_codes!machine_id(id, code, scans_count, is_active, last_scanned_at), " +
-        "exercises!machine_id(id, name)",
+          "qr_codes!machine_id(id, code, scans_count, is_active, last_scanned_at), " +
+          "exercises!machine_id(id, name)",
         { count: "exact", head: false }
       )
       .eq("gym_id", gymId)
@@ -178,9 +199,9 @@ export async function GET(request: NextRequest) {
     const machines = (data ?? []).map(mapMachine)
 
     const kpis = {
-      total:      kpiData.length,
-      available:  kpiData.filter((m) => m.status === "available").length,
-      maintenance:kpiData.filter((m) => m.status === "maintenance").length,
+      total: kpiData.length,
+      available: kpiData.filter((m) => m.status === "available").length,
+      maintenance: kpiData.filter((m) => m.status === "maintenance").length,
       outOfOrder: kpiData.filter((m) => m.status === "out_of_order").length,
     }
 
@@ -217,9 +238,11 @@ export async function POST(request: NextRequest) {
 
     const gymId = adminProfile.gym_id
 
-    const { name, description, equipmentType, muscleGroups, location, status } = await validateBody(request, machineBodySchema)
+    const { name, description, equipmentType, muscleGroups, location, status } = await validateBody(
+      request,
+      machineBodySchema
+    )
 
-    // 1. Insert machine
     const { data: rawMachine, error: machineError } = await supabase
       .from("machines")
       .insert({
@@ -240,19 +263,21 @@ export async function POST(request: NextRequest) {
     }
 
     const md = rawMachine as unknown as {
-      id: string; name: string; status: string; equipment_type: string
-      muscle_groups: string[]; location: string | null; description: string | null; created_at: string
+      id: string
+      name: string
+      status: string
+      equipment_type: string
+      muscle_groups: string[]
+      location: string | null
+      description: string | null
+      created_at: string
     }
 
-    // 2. Generate QR code
-    const namePart = name.toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 5)
-    const randPart = Math.random().toString(36).slice(2, 5).toUpperCase()
-    const qrCode = `MINTHY-${namePart}-${randPart}`
+    const qrPayload = buildMachineQrPayload(md.id)
 
-    // 3. Insert QR code
     const { data: rawQr, error: qrError } = await supabase
       .from("qr_codes")
-      .insert({ machine_id: md.id, code: qrCode, is_active: true })
+      .insert({ machine_id: md.id, code: qrPayload, is_active: true })
       .select("id, code, scans_count, is_active, last_scanned_at")
       .maybeSingle()
 
@@ -262,24 +287,35 @@ export async function POST(request: NextRequest) {
 
     const qd = rawQr as unknown as QrRef | null
 
-    return NextResponse.json({
-      machine: {
-        id: md.id,
-        name: md.name,
-        description: md.description,
-        status: md.status,
-        statusLabel: STATUS_LABELS[md.status] ?? md.status,
-        equipmentType: md.equipment_type,
-        equipmentLabel: EQUIPMENT_LABELS[md.equipment_type] ?? md.equipment_type,
-        muscleGroups: (md.muscle_groups ?? []).map((g) => ({ value: g, label: MUSCLE_LABELS[g] ?? g })),
-        location: md.location,
-        qrCode: qd
-          ? { id: qd.id, code: qd.code, scansCount: qd.scans_count, isActive: qd.is_active, lastScannedAt: qd.last_scanned_at }
-          : null,
-        exercises: [],
-        createdAt: md.created_at,
+    return NextResponse.json(
+      {
+        machine: {
+          id: md.id,
+          name: md.name,
+          description: md.description,
+          status: md.status,
+          statusLabel: STATUS_LABELS[md.status] ?? md.status,
+          equipmentType: md.equipment_type,
+          equipmentLabel: EQUIPMENT_LABELS[md.equipment_type] ?? md.equipment_type,
+          muscleGroups: (md.muscle_groups ?? []).map((g) => ({ value: g, label: MUSCLE_LABELS[g] ?? g })),
+          location: md.location,
+          qrCode: qd
+            ? {
+                id: qd.id,
+                code: qd.code,
+                payload: buildMachineQrPayload(md.id),
+                displayCode: getMachineQrDisplayCode(md.id, qd.code),
+                scansCount: qd.scans_count,
+                isActive: qd.is_active,
+                lastScannedAt: qd.last_scanned_at,
+              }
+            : null,
+          exercises: [],
+          createdAt: md.created_at,
+        },
       },
-    }, { status: 201 })
+      { status: 201 }
+    )
   } catch (err) {
     console.error("POST /api/admin/machines unexpected error:", err)
     return handleApiError(err)

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
 import { requireRoleFromRequest } from "@/lib/auth/guards"
 import { createClient } from "@/lib/supabase/server"
+import { fetchCombinedWorkoutSessionSummaries } from "@/lib/manual-training-sessions"
 
 interface WorkoutSessionSummary {
   id: string
@@ -13,6 +14,8 @@ interface WorkoutSessionSummary {
   total_reps: number
   status: string
   session_type: string
+  source: "qr" | "manual"
+  competitive: boolean
 }
 
 export async function GET(request: NextRequest) {
@@ -23,22 +26,19 @@ export async function GET(request: NextRequest) {
     const supabase = await createClient()
     const userId = sessionOrResponse.userId
 
-    const { data: sessions, error: sessionsError } = await supabase
-      .from("workout_sessions")
-      .select(
-        "id, routine_id, started_at, ended_at, duration_minutes, total_volume_kg, total_sets, total_reps, status, session_type"
-      )
-      .eq("profile_id", userId)
-      .order("started_at", { ascending: false })
-      .limit(10)
-
-    if (sessionsError) {
+    let sessions: WorkoutSessionSummary[]
+    try {
+      sessions = await fetchCombinedWorkoutSessionSummaries({
+        supabase,
+        athleteId: userId,
+        limit: 10,
+      })
+    } catch (sessionsError) {
       console.error("GET /api/client/workout-sessions/recent query error:", sessionsError)
       return NextResponse.json({ error: "Error al obtener sesiones" }, { status: 500 })
     }
 
-    const sessionList: WorkoutSessionSummary[] = sessions ?? []
-    return NextResponse.json({ sessions: sessionList })
+    return NextResponse.json({ sessions })
   } catch (error) {
     console.error("GET /api/client/workout-sessions/recent unexpected error:", error)
     return NextResponse.json({ error: "Error interno del servidor" }, { status: 500 })

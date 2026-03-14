@@ -33,6 +33,8 @@ import {
 } from "@/components/ui/select"
 import { Textarea } from "@/components/ui/textarea"
 import { Skeleton } from "@/components/ui/skeleton"
+export const dynamic = 'force-dynamic'
+
 
 interface PaymentMember {
   id: string

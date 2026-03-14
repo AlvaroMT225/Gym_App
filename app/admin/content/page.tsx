@@ -32,6 +32,8 @@ import {
   SheetHeader,
   SheetTitle,
 } from "@/components/ui/sheet"
+export const dynamic = 'force-dynamic'
+
 
 interface Tutorial {
   id: string

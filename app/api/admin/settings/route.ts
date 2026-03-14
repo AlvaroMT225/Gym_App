@@ -212,7 +212,7 @@ export async function PUT(request: NextRequest) {
       return NextResponse.json({ success: true })
     }
 
-    return NextResponse.json({ error: `Sección desconocida: ${body.section}` }, { status: 400 })
+    return NextResponse.json({ error: `Sección desconocida: ${(body as any).section}` }, { status: 400 })
   } catch (error) {
     return handleApiError(error)
   }

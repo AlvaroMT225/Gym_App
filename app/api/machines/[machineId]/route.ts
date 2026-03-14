@@ -1,19 +1,11 @@
 import { NextRequest, NextResponse } from "next/server"
 import { requireRoleFromRequest } from "@/lib/auth/guards"
 import { createClient } from "@/lib/supabase/server"
-
-type WeightUnit = "kg" | "lb"
-
-interface MachineHistorySet {
-  reps: number
-  weight: number
-  weight_kg: number
-  entered_weight: number
-  entered_weight_unit: WeightUnit
-  display_weight: number
-  display_unit: WeightUnit
-  has_original_input: boolean
-}
+import {
+  parsePersistedTrainingSets,
+  type PersistedHistorySet,
+  type SessionSource,
+} from "@/lib/manual-training-sessions"
 
 interface MachineHistoryEntry {
   id: string
@@ -22,12 +14,10 @@ interface MachineHistoryEntry {
   total_volume: number
   session_xp: number
   factor_progreso: number
+  source: SessionSource
+  competitive: boolean
   has_original_weight_input: boolean
-  sets: MachineHistorySet[]
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null
+  sets: PersistedHistorySet[]
 }
 
 function toNonNegativeNumber(value: unknown): number {
@@ -43,53 +33,6 @@ function toNonNegativeNumber(value: unknown): number {
   }
 
   return 0
-}
-
-function toWeightUnit(value: unknown): WeightUnit | null {
-  if (value === "kg" || value === "lb") {
-    return value
-  }
-
-  return null
-}
-
-function parseHistorySets(value: unknown): MachineHistorySet[] {
-  if (!Array.isArray(value)) {
-    return []
-  }
-
-  const sets: MachineHistorySet[] = []
-
-  for (const item of value) {
-    if (!isRecord(item)) {
-      continue
-    }
-
-    const reps = toNonNegativeNumber(item.reps)
-    const canonicalWeightKg = toNonNegativeNumber(item.weight_kg) || toNonNegativeNumber(item.weight)
-    if (reps <= 0 || canonicalWeightKg <= 0) {
-      continue
-    }
-
-    const originalUnit = toWeightUnit(item.entered_weight_unit)
-    const originalWeight = toNonNegativeNumber(item.entered_weight)
-    const hasOriginalInput = originalUnit !== null && originalWeight > 0
-    const displayUnit: WeightUnit = hasOriginalInput ? originalUnit : "kg"
-    const displayWeight = hasOriginalInput ? originalWeight : canonicalWeightKg
-
-    sets.push({
-      reps,
-      weight: canonicalWeightKg,
-      weight_kg: canonicalWeightKg,
-      entered_weight: displayWeight,
-      entered_weight_unit: displayUnit,
-      display_weight: displayWeight,
-      display_unit: displayUnit,
-      has_original_input: hasOriginalInput,
-    })
-  }
-
-  return sets
 }
 
 export async function GET(
@@ -135,21 +78,37 @@ export async function GET(
       return NextResponse.json({ machine: null, history: [] satisfies MachineHistoryEntry[] })
     }
 
-    const { data: historyRows, error: historyError } = await supabase
-      .from("qr_sessions")
-      .select("id, created_at, notes, total_volume, session_xp, factor_progreso, sets_data")
-      .eq("athlete_id", userId)
-      .eq("machine_id", machineId)
-      .order("created_at", { ascending: false })
-      .limit(10)
+    const [
+      { data: qrHistoryRows, error: qrHistoryError },
+      { data: manualHistoryRows, error: manualHistoryError },
+    ] = await Promise.all([
+      supabase
+        .from("qr_sessions")
+        .select("id, created_at, notes, total_volume, session_xp, factor_progreso, sets_data")
+        .eq("athlete_id", userId)
+        .eq("machine_id", machineId)
+        .order("created_at", { ascending: false })
+        .limit(10),
+      supabase
+        .from("manual_training_sessions")
+        .select("id, created_at, notes, total_volume, sets_data")
+        .eq("athlete_id", userId)
+        .eq("machine_id", machineId)
+        .order("created_at", { ascending: false })
+        .limit(10),
+    ])
 
-    if (historyError) {
-      console.error("GET /api/machines/[machineId] history error:", historyError)
+    if (qrHistoryError) {
+      console.error("GET /api/machines/[machineId] qr history error:", qrHistoryError)
     }
 
-    const history: MachineHistoryEntry[] = Array.isArray(historyRows)
-      ? historyRows.map((row) => {
-          const sets = parseHistorySets(row.sets_data)
+    if (manualHistoryError) {
+      console.error("GET /api/machines/[machineId] manual history error:", manualHistoryError)
+    }
+
+    const qrHistory: MachineHistoryEntry[] = Array.isArray(qrHistoryRows)
+      ? qrHistoryRows.map((row) => {
+          const sets = parsePersistedTrainingSets(row.sets_data)
           return {
             id: row.id,
             created_at: row.created_at,
@@ -157,11 +116,35 @@ export async function GET(
             total_volume: toNonNegativeNumber(row.total_volume),
             session_xp: toNonNegativeNumber(row.session_xp),
             factor_progreso: toNonNegativeNumber(row.factor_progreso),
+            source: "qr",
+            competitive: true,
             has_original_weight_input: sets.some((set) => set.has_original_input),
             sets,
           }
         })
       : []
+
+    const manualHistory: MachineHistoryEntry[] = Array.isArray(manualHistoryRows)
+      ? manualHistoryRows.map((row) => {
+          const sets = parsePersistedTrainingSets(row.sets_data)
+          return {
+            id: row.id,
+            created_at: row.created_at,
+            notes: typeof row.notes === "string" ? row.notes : null,
+            total_volume: toNonNegativeNumber(row.total_volume),
+            session_xp: 0,
+            factor_progreso: 0,
+            source: "manual",
+            competitive: false,
+            has_original_weight_input: sets.some((set) => set.has_original_input),
+            sets,
+          }
+        })
+      : []
+
+    const history = [...qrHistory, ...manualHistory]
+      .sort((left, right) => new Date(right.created_at).getTime() - new Date(left.created_at).getTime())
+      .slice(0, 10)
 
     return NextResponse.json({ machine, history })
   } catch (error) {

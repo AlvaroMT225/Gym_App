@@ -1,36 +1,91 @@
-import { NextResponse } from "next/server"
+import { NextResponse } from 'next/server';
+import { stripe } from '@/lib/stripe';
+import Stripe from 'stripe';
+import { createServiceRoleClient } from '@/lib/supabase/service';
 
 export async function POST(request: Request) {
   try {
-    const body = await request.text()
-    const signature = request.headers.get("stripe-signature")
+    const body = await request.text();
+    const signature = request.headers.get('stripe-signature');
 
-    if (!signature) {
-      return NextResponse.json(
-        { error: "Missing stripe-signature header" },
-        { status: 400 }
-      )
+    if (!signature || !process.env.STRIPE_WEBHOOK_SECRET) {
+      throw new Error('Missing Stripe signature or webhook secret.');
     }
 
-    // TODO (Subfase 1.5): Verify signature with stripe.webhooks.constructEvent()
-    // TODO (Subfase 1.5): Process events:
-    // - checkout.session.completed -> activate membership
-    // - invoice.paid -> register payment
-    // - invoice.payment_failed -> mark failed payment
-    // - customer.subscription.updated -> update plan
-    // - customer.subscription.deleted -> cancel membership
-    console.log("[Stripe Webhook] Received event", {
-      signaturePresent: !!signature,
-      bodyLength: body.length,
-      timestamp: new Date().toISOString(),
-    })
+    const event = stripe.webhooks.constructEvent(
+      body,
+      signature,
+      process.env.STRIPE_WEBHOOK_SECRET
+    );
 
-    return NextResponse.json({ received: true })
+    const supabaseAdmin = createServiceRoleClient();
+
+    switch (event.type) {
+      case 'checkout.session.completed': {
+        const session = event.data.object as Stripe.Checkout.Session;
+        console.log('[Webhook] Sesión completada:', session.id);
+
+        const userId = session.metadata?.supabaseUUID;
+        const customerId = session.customer;
+        const subscriptionId = session.subscription;
+
+        if (!userId || !customerId || !subscriptionId) {
+          console.error(
+            '[Webhook Error] Faltan metadatos cruciales en la sesión de checkout:',
+            session.id
+          );
+          break;
+        }
+
+        await supabaseAdmin
+          .from('profiles')
+          .update({ stripe_customer_id: customerId as string })
+          .eq('id', userId);
+
+        await supabaseAdmin
+          .from('memberships')
+          .update({
+            status: 'active',
+            stripe_subscription_id: subscriptionId as string,
+          })
+          .eq('profile_id', userId);
+        break;
+      }
+      case 'invoice.paid': {
+        const invoice = event.data.object as Stripe.Invoice;
+        console.log('[Webhook] Factura pagada:', invoice.id);
+        break;
+      }
+      case 'invoice.payment_failed': {
+        const invoice = event.data.object as Stripe.Invoice;
+        console.log('[Webhook] Pago fallido:', invoice.id);
+        break;
+      }
+      case 'customer.subscription.updated': {
+        const subscription = event.data.object as Stripe.Subscription;
+        console.log('[Webhook] Suscripción actualizada:', subscription.id);
+        break;
+      }
+      case 'customer.subscription.deleted': {
+        const subscription = event.data.object as Stripe.Subscription;
+        console.log('[Webhook] Suscripción cancelada:', subscription.id);
+
+        const subscriptionId = subscription.id;
+
+        await supabaseAdmin
+          .from('memberships')
+          .update({ status: 'inactive' })
+          .eq('stripe_subscription_id', subscriptionId);
+        break;
+      }
+    }
+
+    return NextResponse.json({ received: true });
   } catch (error) {
-    console.error("[Stripe Webhook] Error:", error)
-    return NextResponse.json(
-      { error: "Webhook handler failed" },
-      { status: 500 }
-    )
+    if (error instanceof Stripe.errors.StripeSignatureVerificationError) {
+      return new NextResponse('Invalid signature', { status: 400 });
+    }
+    console.error(error);
+    return new NextResponse('Internal Server Error', { status: 500 });
   }
 }

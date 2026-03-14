@@ -23,6 +23,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Progress } from "@/components/ui/progress"
+import { Toaster } from "@/components/ui/sonner"
 import {
   Dialog,
   DialogContent,
@@ -33,6 +34,7 @@ import {
 } from "@/components/ui/dialog"
 import { useStore } from "@/lib/store"
 import { formatDateShort, translateMuscleGroups } from "@/lib/utils"
+import { toast } from "sonner"
 
 interface MachinePanelProps {
   machineId: string
@@ -63,6 +65,66 @@ interface MachineTutorialDetail {
 
 interface TutorialDetailResponse {
   item?: MachineTutorialDetail
+}
+
+interface QrSessionResponse {
+  session_xp?: unknown
+  factor_progreso?: unknown
+  rank_regional?: unknown
+  rank_global?: unknown
+  region_label?: unknown
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null
+}
+
+function toNonNegativeNumber(value: unknown): number {
+  if (typeof value === "number" && Number.isFinite(value)) {
+    return value >= 0 ? value : 0
+  }
+
+  if (typeof value === "string") {
+    const parsed = Number.parseFloat(value)
+    if (Number.isFinite(parsed)) {
+      return parsed >= 0 ? parsed : 0
+    }
+  }
+
+  return 0
+}
+
+function formatMetric(value: number): string {
+  const safe = Number.isFinite(value) ? value : 0
+  const hasDecimals = Math.abs(safe % 1) > 0
+  return new Intl.NumberFormat("es-ES", {
+    minimumFractionDigits: hasDecimals ? 2 : 0,
+    maximumFractionDigits: hasDecimals ? 2 : 0,
+  }).format(safe)
+}
+
+function toPositiveIntegerOrNull(value: unknown): number | null {
+  if (typeof value === "number" && Number.isFinite(value) && value > 0) {
+    return Math.trunc(value)
+  }
+
+  if (typeof value === "string") {
+    const parsed = Number.parseInt(value, 10)
+    if (Number.isFinite(parsed) && parsed > 0) {
+      return parsed
+    }
+  }
+
+  return null
+}
+
+function toNonEmptyStringOrNull(value: unknown): string | null {
+  if (typeof value !== "string") {
+    return null
+  }
+
+  const trimmed = value.trim()
+  return trimmed.length > 0 ? trimmed : null
 }
 
 export function MachinePanel({ machineId }: MachinePanelProps) {
@@ -248,6 +310,11 @@ export function MachinePanel({ machineId }: MachinePanelProps) {
   const [sessionDone, setSessionDone] = useState(false)
   const [finishing, setFinishing] = useState(false)
   const [finishError, setFinishError] = useState<string | null>(null)
+  const [lastSessionXp, setLastSessionXp] = useState(0)
+  const [lastFactorProgreso, setLastFactorProgreso] = useState(0)
+  const [lastRegionalRank, setLastRegionalRank] = useState<number | null>(null)
+  const [lastGlobalRank, setLastGlobalRank] = useState<number | null>(null)
+  const [lastRegionLabel, setLastRegionLabel] = useState<string | null>(null)
 
   // Form state for new set
   const [weight, setWeight] = useState(lastSet?.weight || 20)
@@ -310,6 +377,9 @@ export function MachinePanel({ machineId }: MachinePanelProps) {
     if (sessionSets.length === 0) return
     setFinishing(true)
     setFinishError(null)
+    setLastRegionalRank(null)
+    setLastGlobalRank(null)
+    setLastRegionLabel(null)
     try {
       const res = await fetch("/api/client/workout-sessions", {
         method: "POST",
@@ -320,17 +390,58 @@ export function MachinePanel({ machineId }: MachinePanelProps) {
           source: "qr",
         }),
       })
+
       if (!res.ok) {
         const data = await res.json().catch(() => ({}))
-        setFinishError(data.error ?? "Error al guardar sesión. Intenta de nuevo.")
+        const fallbackMessage = "Error al guardar sesion. Intenta de nuevo."
+        const message =
+          isRecord(data) && typeof data.error === "string" ? data.error : fallbackMessage
+        setFinishError(message)
         return
       }
+
+      const qrRes = await fetch("/api/client/qr-sessions", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          machine_id: machineId,
+          sets_data: sessionSets.map((s) => ({ weight: s.weight, reps: s.reps })),
+        }),
+      })
+
+      let sessionXp = 0
+      let factorProgreso = 0
+
+      if (qrRes.ok) {
+        const qrJson = (await qrRes.json().catch(() => null)) as QrSessionResponse | null
+        if (isRecord(qrJson)) {
+          sessionXp = toNonNegativeNumber(qrJson.session_xp)
+          factorProgreso = toNonNegativeNumber(qrJson.factor_progreso)
+          setLastRegionalRank(toPositiveIntegerOrNull(qrJson.rank_regional))
+          setLastGlobalRank(toPositiveIntegerOrNull(qrJson.rank_global))
+          setLastRegionLabel(toNonEmptyStringOrNull(qrJson.region_label))
+        }
+
+        toast.success(`+${formatMetric(sessionXp)} XP ganados`, {
+          description: `Factor Progreso: ${formatMetric(factorProgreso)}x`,
+          duration: 5000,
+        })
+      }
+
+      setLastSessionXp(sessionXp)
+      setLastFactorProgreso(factorProgreso)
       setSessionDone(true)
     } catch {
-      setFinishError("Error de conexión. Intenta de nuevo.")
+      setFinishError("Error de conexion. Intenta de nuevo.")
     } finally {
       setFinishing(false)
     }
+  }
+
+  const handleContinueTraining = () => {
+    setSessionDone(false)
+    setSessionSets([])
+    setFinishError(null)
   }
 
   const formatTime = (s: number) => {
@@ -387,6 +498,7 @@ export function MachinePanel({ machineId }: MachinePanelProps) {
 
   return (
     <div className="px-4 py-6 lg:px-8 lg:py-8">
+      <Toaster position="top-center" />
       {/* Tutorial modal (first time) — BLOCKS registration */}
       <Dialog
         open={showTutorial}
@@ -511,7 +623,14 @@ export function MachinePanel({ machineId }: MachinePanelProps) {
       </div>
 
       {/* Reward modal */}
-      <Dialog open={sessionDone} onOpenChange={setSessionDone}>
+      <Dialog
+        open={sessionDone}
+        onOpenChange={(open) => {
+          if (!open) {
+            handleContinueTraining()
+          }
+        }}
+      >
         <DialogContent className="sm:max-w-sm text-center">
           <div className="flex flex-col items-center py-4">
             <div className="flex items-center justify-center w-16 h-16 rounded-full bg-accent/20 mb-4">
@@ -520,6 +639,28 @@ export function MachinePanel({ machineId }: MachinePanelProps) {
             <h3 className="text-lg font-bold text-foreground mb-1">
               Sesion Completada
             </h3>
+            <p className="text-2xl font-extrabold text-primary mb-1 animate-in fade-in zoom-in-95 duration-300">
+              +{formatMetric(lastSessionXp)} XP ganados
+            </p>
+            <p className="text-sm text-muted-foreground mb-2">
+              Factor Progreso: {formatMetric(lastFactorProgreso)}x
+            </p>
+            {(lastRegionalRank !== null || lastGlobalRank !== null) && (
+              <p className="text-sm text-muted-foreground mb-2">
+                Eres{" "}
+                {lastRegionalRank !== null && lastRegionLabel ? (
+                  <>
+                    <span className="font-bold text-primary">#{lastRegionalRank}</span> en {lastRegionLabel}
+                  </>
+                ) : null}
+                {lastRegionalRank !== null && lastRegionLabel && lastGlobalRank !== null ? " · " : null}
+                {lastGlobalRank !== null ? (
+                  <>
+                    <span className="font-bold text-primary">#{lastGlobalRank}</span> Global
+                  </>
+                ) : null}
+              </p>
+            )}
             <p className="text-sm text-muted-foreground mb-4">
               {sessionSets.length} sets registrados en {machine.name}
             </p>
@@ -531,9 +672,14 @@ export function MachinePanel({ machineId }: MachinePanelProps) {
                 Racha: 5 dias
               </Badge>
             </div>
-            <Link href="/dashboard" className="w-full">
-              <Button className="w-full">Volver al Home</Button>
-            </Link>
+            <div className="w-full flex flex-col sm:flex-row gap-2">
+              <Link href="/dashboard/challenges" className="w-full">
+                <Button className="w-full">Ver Rankings</Button>
+              </Link>
+              <Button variant="outline" className="w-full" onClick={handleContinueTraining}>
+                Seguir entrenando
+              </Button>
+            </div>
           </div>
         </DialogContent>
       </Dialog>
@@ -904,4 +1050,3 @@ export function MachinePanel({ machineId }: MachinePanelProps) {
     </div>
   )
 }
-
