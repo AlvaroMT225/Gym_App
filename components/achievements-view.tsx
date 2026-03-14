@@ -26,17 +26,10 @@ type AchievementDto = {
   name: string
   description: string | null
   category: string | null
-  achievementCategory?: string | null
   iconName: string | null
   iconColor: string
   points: number
   criteria: Record<string, unknown>
-  xpThreshold?: number | null
-  xpAtUnlock?: number | null
-  progressCurrent?: number
-  progressTarget?: number | null
-  progressPercent?: number
-  progressLabel?: string | null
   unlocked: boolean
   unlockedAt: string | null
 }
@@ -62,8 +55,6 @@ const categoryLabels: Record<string, string> = {
   pr: "PR",
   constancia: "Constancia",
   retos: "Retos",
-  xp: "XP",
-  progression: "Progresion",
 }
 
 const categoryColors: Record<string, string> = {
@@ -72,18 +63,6 @@ const categoryColors: Record<string, string> = {
   pr: "bg-accent/15 text-accent",
   constancia: "bg-primary/10 text-primary",
   retos: "bg-destructive/10 text-destructive",
-  xp: "bg-primary/10 text-primary",
-  progression: "bg-accent/15 text-accent",
-}
-
-function clampProgress(value: unknown): number {
-  if (typeof value !== "number" || !Number.isFinite(value)) {
-    return 0
-  }
-
-  if (value <= 0) return 0
-  if (value >= 100) return 100
-  return value
 }
 
 export function AchievementsView() {
@@ -181,14 +160,14 @@ export function AchievementsView() {
     "all",
     ...new Set(
       achievements
-        .map((achievement) => achievement.category ?? achievement.achievementCategory ?? null)
+        .map((achievement) => achievement.category)
         .filter((category): category is string => Boolean(category))
     ),
   ]
 
   const filtered = filterCategory === "all"
     ? achievements
-    : achievements.filter((a) => (a.category ?? a.achievementCategory) === filterCategory)
+    : achievements.filter((a) => a.category === filterCategory)
 
   return (
     <div className="flex flex-col gap-6">
@@ -253,15 +232,6 @@ export function AchievementsView() {
         {filtered.map((achievement) => {
           const IconComponent = iconMap[achievement.iconName ?? ""] || Trophy
           const isUnlocked = achievement.unlocked
-          const achievementCategory = achievement.category ?? achievement.achievementCategory ?? ""
-          const progressPercent = isUnlocked ? 100 : clampProgress(achievement.progressPercent)
-          const progressLabel =
-            achievement.progressLabel && achievement.progressLabel.trim().length > 0
-              ? achievement.progressLabel
-              : isUnlocked
-                ? "Completado (100%)"
-                : "Sin progreso aun"
-
           return (
             <button
               key={achievement.id}
@@ -271,14 +241,14 @@ export function AchievementsView() {
             >
               <Card className={`border transition-all duration-200 hover:shadow-md hover:-translate-y-0.5 cursor-pointer ${
                 isUnlocked
-                  ? "border-amber-300/60 bg-amber-50/40"
+                  ? "border-primary/30 bg-card"
                   : "border-border bg-muted/40"
               }`}>
                 <CardContent className="flex flex-col items-center py-5 text-center">
                   <div className={`flex items-center justify-center w-14 h-14 rounded-2xl mb-3 relative ${
-                    isUnlocked ? "bg-amber-500/15" : "bg-muted"
+                    isUnlocked ? "bg-primary/15" : "bg-muted"
                   }`}>
-                    <IconComponent className={`w-7 h-7 ${isUnlocked ? "text-amber-600" : "text-muted-foreground/40"}`} />
+                    <IconComponent className={`w-7 h-7 ${isUnlocked ? "text-primary" : "text-muted-foreground/40"}`} />
                     {!isUnlocked && (
                       <div className="absolute -bottom-1 -right-1 w-5 h-5 rounded-full bg-muted-foreground/20 flex items-center justify-center">
                         <Lock className="w-3 h-3 text-muted-foreground/60" />
@@ -288,16 +258,14 @@ export function AchievementsView() {
                   <h4 className={`text-xs font-semibold mb-1 ${isUnlocked ? "text-foreground" : "text-muted-foreground"}`}>
                     {achievement.name}
                   </h4>
-                  <Badge className={`text-[10px] border-0 mb-1 ${isUnlocked ? "bg-amber-500/15 text-amber-700" : "bg-muted text-muted-foreground"}`}>
-                    {isUnlocked ? "Desbloqueado" : "Pendiente"}
+                  <Badge className={`text-[10px] border-0 ${categoryColors[achievement.category ?? ""] || "bg-muted text-muted-foreground"}`}>
+                    {achievement.category ? (categoryLabels[achievement.category] || achievement.category) : "General"}
                   </Badge>
-                  <Badge className={`text-[10px] border-0 ${categoryColors[achievementCategory] || "bg-muted text-muted-foreground"}`}>
-                    {achievementCategory ? (categoryLabels[achievementCategory] || achievementCategory) : "General"}
-                  </Badge>
-                  <p className="mt-2 text-[11px] text-muted-foreground">{progressLabel}</p>
-                  <div className="w-full mt-2">
-                    <Progress value={progressPercent} className="h-1.5" />
-                  </div>
+                  {!isUnlocked && (
+                    <div className="w-full mt-2">
+                      <Progress value={0} className="h-1.5" />
+                    </div>
+                  )}
                 </CardContent>
               </Card>
             </button>
@@ -323,33 +291,25 @@ export function AchievementsView() {
               <div className="flex flex-col gap-2">
                 <div className="flex items-center justify-between text-sm">
                   <span className="text-muted-foreground">Requisito:</span>
-                  <span className="font-medium text-foreground">
-                    {selectedAchievement.progressTarget && selectedAchievement.progressTarget > 0
-                      ? `${formatNumber(selectedAchievement.progressTarget)}`
-                      : "Variable"}
-                  </span>
+                  <span className="font-medium text-foreground">Disponible pronto</span>
                 </div>
                 <div className="flex items-center justify-between text-sm">
                   <span className="text-muted-foreground">
                     Progreso:
                   </span>
                   <span className="font-medium text-foreground">
-                    {selectedAchievement.progressLabel && selectedAchievement.progressLabel.trim().length > 0
-                      ? selectedAchievement.progressLabel
-                      : selectedAchievement.unlocked
-                        ? "Completado (100%)"
-                        : "Sin progreso aun"}
+                    Disponible pronto
                   </span>
                 </div>
                 <Progress
-                  value={selectedAchievement.unlocked ? 100 : clampProgress(selectedAchievement.progressPercent)}
+                  value={selectedAchievement.unlocked ? 100 : 0}
                   className="h-2"
                 />
                 <div className="flex items-center justify-between text-sm">
                   <span className="text-muted-foreground">Categoria:</span>
-                  <Badge className={`border-0 ${categoryColors[selectedAchievement.category ?? selectedAchievement.achievementCategory ?? ""] || "bg-muted text-muted-foreground"}`}>
-                    {(selectedAchievement.category ?? selectedAchievement.achievementCategory)
-                      ? (categoryLabels[selectedAchievement.category ?? selectedAchievement.achievementCategory ?? ""] || (selectedAchievement.category ?? selectedAchievement.achievementCategory))
+                  <Badge className={`border-0 ${categoryColors[selectedAchievement.category ?? ""] || "bg-muted text-muted-foreground"}`}>
+                    {selectedAchievement.category
+                      ? (categoryLabels[selectedAchievement.category] || selectedAchievement.category)
                       : "General"}
                   </Badge>
                 </div>

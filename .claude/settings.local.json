@@ -44,31 +44,7 @@
       "Bash(sort find \"c:/Users/USUARIO/Documents/AuT_IA/Gym_App/update-minthy-trainingV1/app/api/admin\" -path \"*member*\")",
       "Bash(head -10 grep -n \"plan_type\\\\|plan_labels\\\\|PLAN_TYPE\" \"c:/Users/USUARIO/Documents/AuT_IA/Gym_App/update-minthy-trainingV1/lib/supabase/types/database.ts\")",
       "Bash(node -e \"require\\(''zod''\\); console.log\\(''zod ok:'', require\\(''./node_modules/zod/package.json''\\).version\\)\")",
-      "Bash(node -e \":*)",
-      "Bash(cmd /c \"cd C:\\\\Users\\\\USUARIO\\\\Documents\\\\AuT_IA\\\\Gym_App\\\\minthy-mobile && npx tsc --noEmit\")",
-      "Bash(powershell -Command \"Set-Location ''C:\\\\Users\\\\USUARIO\\\\Documents\\\\AuT_IA\\\\Gym_App\\\\minthy-mobile''; npx tsc --noEmit 2>&1\")",
-      "Bash(powershell -ExecutionPolicy Bypass -Command \"Set-Location ''C:\\\\Users\\\\USUARIO\\\\Documents\\\\AuT_IA\\\\Gym_App\\\\minthy-mobile''; node node_modules/typescript/bin/tsc --noEmit 2>&1\")",
-      "Bash(powershell -ExecutionPolicy Bypass -Command \"Set-Location ''C:\\\\Users\\\\USUARIO\\\\Documents\\\\AuT_IA\\\\Gym_App\\\\minthy-mobile''; node node_modules/.bin/expo install react-native-gifted-charts react-native-linear-gradient react-native-svg 2>&1\")",
-      "Bash(powershell -ExecutionPolicy Bypass -Command \"Set-Location ''C:\\\\Users\\\\USUARIO\\\\Documents\\\\AuT_IA\\\\Gym_App\\\\minthy-mobile''; npm install react-native-gifted-charts react-native-linear-gradient react-native-svg --legacy-peer-deps 2>&1\")",
-      "Bash(powershell -ExecutionPolicy Bypass -Command \"Set-Location ''C:\\\\Users\\\\USUARIO\\\\Documents\\\\AuT_IA\\\\Gym_App\\\\minthy-mobile''; npm uninstall react-native-linear-gradient 2>&1\")",
-      "Bash(powershell -ExecutionPolicy Bypass -Command \"Set-Location ''C:\\\\Users\\\\USUARIO\\\\Documents\\\\AuT_IA\\\\Gym_App\\\\minthy-mobile''; node node_modules/expo/bin/cli.js install expo-linear-gradient 2>&1\")",
-      "Bash(powershell -ExecutionPolicy Bypass -Command \"Set-Location ''C:\\\\Users\\\\USUARIO\\\\Documents\\\\AuT_IA\\\\Gym_App\\\\minthy-mobile''; npm install expo-linear-gradient --legacy-peer-deps 2>&1\")",
-      "Bash(powershell -ExecutionPolicy Bypass -Command \"Set-Location ''C:\\\\Users\\\\USUARIO\\\\Documents\\\\AuT_IA\\\\Gym_App\\\\minthy-mobile''; npm install lucide-react-native --legacy-peer-deps 2>&1\")",
-      "Bash(powershell -ExecutionPolicy Bypass -Command \"Get-ChildItem ''C:\\\\Users\\\\USUARIO\\\\Documents\\\\AuT_IA\\\\Gym_App\\\\minthy-mobile\\\\node_modules\\\\lucide-react-native'' -Name | Select-Object -First 20\")",
-      "Bash(powershell -ExecutionPolicy Bypass -Command \"Get-Content ''C:\\\\Users\\\\USUARIO\\\\Documents\\\\AuT_IA\\\\Gym_App\\\\minthy-mobile\\\\node_modules\\\\lucide-react-native\\\\package.json'' | Select-String ''main|types|exports|module'' | Select-Object -First 15\")",
-      "Bash(powershell -ExecutionPolicy Bypass -Command \"Get-Content ''C:\\\\Users\\\\USUARIO\\\\Documents\\\\AuT_IA\\\\Gym_App\\\\minthy-mobile\\\\node_modules\\\\lucide-react-native\\\\dist\\\\lucide-react-native.d.ts'' | Select-Object -First 40\")",
-      "Bash(ipconfig)",
-      "Bash(findstr /i \"IPv4\")",
-      "Bash(powershell -ExecutionPolicy Bypass -Command \"Get-NetIPAddress -AddressFamily IPv4 | Where-Object { $_IPAddress -notlike ''127.*'' -and $_IPAddress -notlike ''169.*'' } | Select-Object IPAddress, InterfaceAlias\")",
-      "Bash(powershell -ExecutionPolicy Bypass -Command \"ipconfig | Select-String ''IPv4''\")",
-      "Bash(powershell -ExecutionPolicy Bypass -Command \"Set-Location ''C:\\\\Users\\\\USUARIO\\\\Documents\\\\AuT_IA\\\\Gym_App\\\\minthy-mobile''; node node_modules/expo/bin/expo.js install --fix 2>&1\")",
-      "Bash(powershell -ExecutionPolicy Bypass -Command \"Get-ChildItem ''C:\\\\Users\\\\USUARIO\\\\Documents\\\\AuT_IA\\\\Gym_App\\\\minthy-mobile\\\\node_modules\\\\@expo\\\\cli'' -Name | Select-Object -First 10\")",
-      "Bash(powershell -ExecutionPolicy Bypass -Command \"Get-ChildItem ''C:\\\\Users\\\\USUARIO\\\\Documents\\\\AuT_IA\\\\Gym_App\\\\minthy-mobile\\\\node_modules\\\\expo\\\\node_modules\\\\@expo\\\\cli\\\\build'' -Name | Select-Object -First 10\")",
-      "Bash(powershell -ExecutionPolicy Bypass -Command \"Get-ChildItem ''C:\\\\Users\\\\USUARIO\\\\Documents\\\\AuT_IA\\\\Gym_App\\\\minthy-mobile\\\\node_modules\\\\expo\\\\node_modules\\\\@expo\\\\cli\\\\build\\\\bin'' -Name\")",
-      "Bash(powershell -ExecutionPolicy Bypass -Command \"Set-Location ''C:\\\\Users\\\\USUARIO\\\\Documents\\\\AuT_IA\\\\Gym_App\\\\minthy-mobile''; node node_modules/expo/node_modules/@expo/cli/build/bin/cli install --fix 2>&1\")",
-      "Bash(powershell -ExecutionPolicy Bypass -Command \"Set-Location ''C:\\\\Users\\\\USUARIO\\\\Documents\\\\AuT_IA\\\\Gym_App\\\\minthy-mobile''; npm install expo-linear-gradient@15.0.8 react-native-svg@15.12.1 --legacy-peer-deps 2>&1\")",
-      "Bash(powershell -ExecutionPolicy Bypass -Command \"Set-Location ''C:\\\\Users\\\\USUARIO\\\\Documents\\\\AuT_IA\\\\Gym_App\\\\minthy-mobile''; node -e \"\"console.log\\(''expo-linear-gradient:'', require\\(''./node_modules/expo-linear-gradient/package.json''\\).version\\); console.log\\(''react-native-svg:'', require\\(''./node_modules/react-native-svg/package.json''\\).version\\); console.log\\(''react-native-gifted-charts:'', require\\(''./node_modules/react-native-gifted-charts/package.json''\\).version\\);\"\" 2>&1\")",
-      "Bash(powershell -ExecutionPolicy Bypass -Command \"if \\(Test-Path ''C:\\\\Users\\\\USUARIO\\\\Documents\\\\AuT_IA\\\\Gym_App\\\\minthy-mobile\\\\node_modules\\\\.cache''\\) { Remove-Item -Recurse -Force ''C:\\\\Users\\\\USUARIO\\\\Documents\\\\AuT_IA\\\\Gym_App\\\\minthy-mobile\\\\node_modules\\\\.cache''; Write-Host ''Cache eliminado'' } else { Write-Host ''No habia cache'' }\")"
+      "Bash(node -e \":*)"
     ]
   }
 }

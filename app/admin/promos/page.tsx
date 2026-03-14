@@ -38,8 +38,6 @@ import {
   SelectValue,
 } from "@/components/ui/select"
 import { Skeleton } from "@/components/ui/skeleton"
-export const dynamic = 'force-dynamic'
-
 
 /* ---------- constants ---------- */
 

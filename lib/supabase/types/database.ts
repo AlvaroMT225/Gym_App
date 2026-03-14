@@ -955,7 +955,6 @@ export type Database = {
       memberships: {
         Row: {
           auto_renew: boolean | null
-          cancel_at_period_end: boolean | null
           created_at: string | null
           created_by: string | null
           end_date: string | null
@@ -967,13 +966,10 @@ export type Database = {
           profile_id: string
           start_date: string | null
           status: Database["public"]["Enums"]["membership_status"] | null
-          stripe_price_id: string | null
-          stripe_subscription_id: string | null
           updated_at: string | null
         }
         Insert: {
           auto_renew?: boolean | null
-          cancel_at_period_end?: boolean | null
           created_at?: string | null
           created_by?: string | null
           end_date?: string | null
@@ -985,13 +981,10 @@ export type Database = {
           profile_id: string
           start_date?: string | null
           status?: Database["public"]["Enums"]["membership_status"] | null
-          stripe_price_id?: string | null
-          stripe_subscription_id?: string | null
           updated_at?: string | null
         }
         Update: {
           auto_renew?: boolean | null
-          cancel_at_period_end?: boolean | null
           created_at?: string | null
           created_by?: string | null
           end_date?: string | null
@@ -1003,8 +996,6 @@ export type Database = {
           profile_id?: string
           start_date?: string | null
           status?: Database["public"]["Enums"]["membership_status"] | null
-          stripe_price_id?: string | null
-          stripe_subscription_id?: string | null
           updated_at?: string | null
         }
         Relationships: [
@@ -1164,9 +1155,6 @@ export type Database = {
           profile_id: string
           reference_code: string | null
           status: Database["public"]["Enums"]["payment_status"] | null
-          stripe_checkout_session_id: string | null
-          stripe_invoice_id: string | null
-          stripe_payment_intent_id: string | null
           updated_at: string | null
         }
         Insert: {
@@ -1183,9 +1171,6 @@ export type Database = {
           profile_id: string
           reference_code?: string | null
           status?: Database["public"]["Enums"]["payment_status"] | null
-          stripe_checkout_session_id?: string | null
-          stripe_invoice_id?: string | null
-          stripe_payment_intent_id?: string | null
           updated_at?: string | null
         }
         Update: {
@@ -1202,9 +1187,6 @@ export type Database = {
           profile_id?: string
           reference_code?: string | null
           status?: Database["public"]["Enums"]["payment_status"] | null
-          stripe_checkout_session_id?: string | null
-          stripe_invoice_id?: string | null
-          stripe_payment_intent_id?: string | null
           updated_at?: string | null
         }
         Relationships: [
@@ -1535,7 +1517,6 @@ export type Database = {
           phone: string | null
           role: Database["public"]["Enums"]["user_role"] | null
           settings: Json | null
-          stripe_customer_id: string | null
           updated_at: string | null
           weight_kg: number | null
         }
@@ -1558,7 +1539,6 @@ export type Database = {
           phone?: string | null
           role?: Database["public"]["Enums"]["user_role"] | null
           settings?: Json | null
-          stripe_customer_id?: string | null
           updated_at?: string | null
           weight_kg?: number | null
         }
@@ -1581,7 +1561,6 @@ export type Database = {
           phone?: string | null
           role?: Database["public"]["Enums"]["user_role"] | null
           settings?: Json | null
-          stripe_customer_id?: string | null
           updated_at?: string | null
           weight_kg?: number | null
         }
@@ -2963,7 +2942,7 @@ export type Database = {
         | "consent_expiring"
         | "proposal_received"
         | "system_message"
-      payment_method: "cash" | "card" | "transfer" | "app" | "stripe"
+      payment_method: "cash" | "card" | "transfer" | "app"
       payment_status: "pending" | "paid" | "overdue" | "cancelled" | "refunded"
       plan_type: "basic" | "premium" | "vip" | "custom"
       promo_status: "active" | "inactive" | "expired"
@@ -3151,7 +3130,7 @@ export const Constants = {
         "proposal_received",
         "system_message",
       ],
-      payment_method: ["cash", "card", "transfer", "app", "stripe"],
+      payment_method: ["cash", "card", "transfer", "app"],
       payment_status: ["pending", "paid", "overdue", "cancelled", "refunded"],
       plan_type: ["basic", "premium", "vip", "custom"],
       promo_status: ["active", "inactive", "expired"],
@@ -3163,14 +3142,20 @@ export const Constants = {
   },
 } as const
 
-// --- ALIAS PARA RETROCOMPATIBILIDAD CON CÓDIGO LEGACY ---
-export type PromoStatus = string;
-export type UserRole = "ADMIN" | "TRAINER" | "USER" | "admin" | "coach" | "athlete" | string;
+// ==================== Type aliases ====================
+// Shorthand types used by lib/supabase/queries/* and API routes.
+// Generated from the Database type using the helpers above.
 
-export type MachineUpdate = any;
-export type ProfileUpdate = any;
+// Enum types
+export type UserRole = Enums<"user_role">
+export type PromoStatus = Enums<"promo_status">
 
-export type WorkoutSessionInsert = any;
-export type WorkoutSetInsert = any;
-export type RoutineInsert = any;
-export type RoutineExerciseInsert = any;
+// Update types
+export type ProfileUpdate = TablesUpdate<"profiles">
+export type MachineUpdate = TablesUpdate<"machines">
+
+// Insert types
+export type WorkoutSessionInsert = TablesInsert<"workout_sessions">
+export type WorkoutSetInsert = TablesInsert<"workout_sets">
+export type RoutineInsert = TablesInsert<"routines">
+export type RoutineExerciseInsert = TablesInsert<"routine_exercises">

@@ -45,8 +45,6 @@ import {
   SelectValue,
 } from "@/components/ui/select"
 import Link from "next/link"
-export const dynamic = 'force-dynamic'
-
 
 /* ---------- types ---------- */
 
