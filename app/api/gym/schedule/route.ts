@@ -1,4 +1,5 @@
-import { NextResponse } from "next/server"
+import { NextRequest, NextResponse } from "next/server"
+import { requireRoleFromRequest } from "@/lib/auth/guards"
 import { createClient } from "@/lib/supabase/server"
 
 const DAY_NAMES: Record<number, string> = {
@@ -11,19 +12,24 @@ const DAY_NAMES: Record<number, string> = {
   6: "Sábado",
 }
 
-export async function GET() {
+export async function GET(request: NextRequest) {
+  const sessionOrResponse = await requireRoleFromRequest(request, ["USER"])
+  if (sessionOrResponse instanceof NextResponse) return sessionOrResponse
+
   try {
-    const supabase = await createClient()
+    const supabase = await createClient(request)
+    const athleteId = sessionOrResponse.userId
 
-    // Obtener gym_id del usuario autenticado
-    const { data: { user } } = await supabase.auth.getUser()
-    if (!user) return NextResponse.json({ error: "No autenticado" }, { status: 401 })
-
-    const { data: profile } = await supabase
+    const { data: profile, error: profileError } = await supabase
       .from("profiles")
       .select("gym_id")
-      .eq("id", user.id)
-      .single()
+      .eq("id", athleteId)
+      .maybeSingle()
+
+    if (profileError) {
+      console.error("GET /api/gym/schedule profile error:", profileError)
+      return NextResponse.json({ error: "Error al obtener horario" }, { status: 500 })
+    }
 
     if (!profile?.gym_id) return NextResponse.json({ error: "Sin gimnasio" }, { status: 404 })
 
