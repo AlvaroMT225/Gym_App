@@ -53,7 +53,7 @@ export async function GET(request: NextRequest) {
   if (sessionOrResponse instanceof NextResponse) return sessionOrResponse
 
   try {
-    const supabase = await createClient()
+    const supabase = await createClient(request)
     const userId = sessionOrResponse.userId
     const { searchParams } = new URL(request.url)
     const { limit, offset } = paginationParams(searchParams)
