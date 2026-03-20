@@ -42,17 +42,22 @@ export async function GET(request: NextRequest) {
   if (sessionOrResponse instanceof NextResponse) return sessionOrResponse
 
   try {
-    const supabase = await createClient()
-    const userId = sessionOrResponse.userId
+    const supabase = await createClient(request)
+    const athleteId = sessionOrResponse.userId
 
-    // Get user's gym_id
+    // Resolve the athlete profile using the same request-bound client as the auth guard.
     const { data: profile, error: profileError } = await supabase
       .from("profiles")
       .select("gym_id")
-      .eq("id", userId)
-      .single()
+      .eq("id", athleteId)
+      .maybeSingle()
 
-    if (profileError || !profile?.gym_id) {
+    if (profileError) {
+      console.error("GET /api/client/challenges profile error:", profileError)
+      return NextResponse.json({ error: "Error al obtener perfil" }, { status: 500 })
+    }
+
+    if (!profile?.gym_id) {
       return NextResponse.json({ error: "Perfil no encontrado" }, { status: 404 })
     }
 
@@ -83,7 +88,7 @@ export async function GET(request: NextRequest) {
       const { data: userChallenges, error: ucError } = await supabase
         .from("user_challenges")
         .select("challenge_id, current_value")
-        .eq("profile_id", userId)
+        .eq("profile_id", athleteId)
         .in("challenge_id", challengeIds)
 
       if (ucError) {
