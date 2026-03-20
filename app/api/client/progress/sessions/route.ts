@@ -3,6 +3,18 @@ import { requireRoleFromRequest } from "@/lib/auth/guards"
 import { createClient } from "@/lib/supabase/server"
 import { fetchCombinedWorkoutSessionSummaries } from "@/lib/manual-training-sessions"
 
+type AllowedDays = 7 | 30 | 90
+
+const allowedDays = new Set<AllowedDays>([7, 30, 90])
+
+function parseDays(daysParam: string | null): AllowedDays {
+  const value = Number(daysParam)
+  if (allowedDays.has(value as AllowedDays)) {
+    return value as AllowedDays
+  }
+  return 30
+}
+
 interface WorkoutSessionSummary {
   id: string
   routine_id: string | null
@@ -25,22 +37,24 @@ export async function GET(request: NextRequest) {
   try {
     const supabase = await createClient(request)
     const userId = sessionOrResponse.userId
+    const days = parseDays(request.nextUrl.searchParams.get("days"))
+    const startIso = new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString()
 
     let sessions: WorkoutSessionSummary[]
     try {
       sessions = await fetchCombinedWorkoutSessionSummaries({
         supabase,
         athleteId: userId,
-        limit: 10,
+        startIso,
       })
     } catch (sessionsError) {
-      console.error("GET /api/client/workout-sessions/recent query error:", sessionsError)
+      console.error("GET /api/client/progress/sessions query error:", sessionsError)
       return NextResponse.json({ error: "Error al obtener sesiones" }, { status: 500 })
     }
 
     return NextResponse.json({ sessions })
   } catch (error) {
-    console.error("GET /api/client/workout-sessions/recent unexpected error:", error)
+    console.error("GET /api/client/progress/sessions unexpected error:", error)
     return NextResponse.json({ error: "Error interno del servidor" }, { status: 500 })
   }
 }

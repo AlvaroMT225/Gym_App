@@ -39,7 +39,7 @@ export async function GET(request: NextRequest) {
   if (sessionOrResponse instanceof NextResponse) return sessionOrResponse
 
   try {
-    const supabase = await createClient()
+    const supabase = await createClient(request)
     const userId = sessionOrResponse.userId
     const days = parseDays(request.nextUrl.searchParams.get("days"))
     const startIso = new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString()
