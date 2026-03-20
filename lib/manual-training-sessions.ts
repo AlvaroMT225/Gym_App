@@ -31,6 +31,7 @@ export interface CombinedWorkoutSessionSummary {
   id: string
   routine_id: string | null
   started_at: string
+  date: string
   ended_at: string | null
   duration_minutes: number | null
   total_volume_kg: number
@@ -38,6 +39,10 @@ export interface CombinedWorkoutSessionSummary {
   total_reps: number
   status: string
   session_type: string
+  routine_name: string
+  classification: "rutina" | "libre"
+  is_free_session: boolean
+  exercise_count: number
   source: SessionSource
   competitive: boolean
 }
@@ -54,14 +59,9 @@ interface WorkoutSessionRow {
   status: string | null
   session_type: string | null
   notes: string | null
-}
-
-interface ManualTrainingSessionRow {
-  id: string
-  created_at: string
-  total_volume: number | null
-  notes: string | null
-  sets_data: unknown
+  routine: { name: string | null } | { name: string | null }[] | null
+  workout_sets: { exercise_id: string | null }[] | null
+  session_machines: { machine_id: string | null }[] | null
 }
 
 type SupabaseClient = Awaited<ReturnType<typeof createClient>>
@@ -108,6 +108,11 @@ function toWeightUnit(value: unknown): WeightUnit | null {
 function normalizeWeightToKg(weight: number, unit: WeightUnit): number {
   const normalized = unit === "lb" ? weight * LB_TO_KG : weight
   return roundToDecimals(normalized, KG_DECIMALS)
+}
+
+function normalizeOne<T>(value: T | T[] | null): T | null {
+  if (!value) return null
+  return Array.isArray(value) ? (value[0] ?? null) : value
 }
 
 export function parseNormalizedTrainingSets(value: unknown): NormalizedTrainingSet[] | null {
@@ -289,11 +294,25 @@ export async function insertManualTrainingSession(params: {
 
 function mapWorkoutSessionSummary(row: WorkoutSessionRow): CombinedWorkoutSessionSummary {
   const source: SessionSource = row.notes === "qr" ? "qr" : "manual"
+  const routine = normalizeOne(row.routine)
+  const exerciseIds = new Set(
+    (row.workout_sets ?? [])
+      .map((set) => (typeof set.exercise_id === "string" ? set.exercise_id : null))
+      .filter((value): value is string => value !== null)
+  )
+  const machineIds = new Set(
+    (row.session_machines ?? [])
+      .map((entry) => (typeof entry.machine_id === "string" ? entry.machine_id : null))
+      .filter((value): value is string => value !== null)
+  )
+  const isFreeSession = row.routine_id === null
+  const routineName = !isFreeSession && routine?.name ? routine.name : "Sesi\u00f3n Libre"
 
   return {
     id: row.id,
     routine_id: row.routine_id,
     started_at: row.started_at,
+    date: row.started_at,
     ended_at: row.ended_at,
     duration_minutes: row.duration_minutes,
     total_volume_kg: toNonNegativeNumber(row.total_volume_kg),
@@ -301,27 +320,12 @@ function mapWorkoutSessionSummary(row: WorkoutSessionRow): CombinedWorkoutSessio
     total_reps: toNonNegativeNumber(row.total_reps),
     status: row.status ?? "completed",
     session_type: row.session_type ?? "gym",
+    routine_name: routineName,
+    classification: isFreeSession ? "libre" : "rutina",
+    is_free_session: isFreeSession,
+    exercise_count: Math.max(exerciseIds.size, machineIds.size),
     source,
     competitive: source === "qr",
-  }
-}
-
-function mapManualSessionSummary(row: ManualTrainingSessionRow): CombinedWorkoutSessionSummary {
-  const totals = calculateTrainingTotals(parsePersistedTrainingSets(row.sets_data))
-
-  return {
-    id: row.id,
-    routine_id: null,
-    started_at: row.created_at,
-    ended_at: null,
-    duration_minutes: null,
-    total_volume_kg: toNonNegativeNumber(row.total_volume) || totals.totalVolume,
-    total_sets: totals.totalSets,
-    total_reps: totals.totalReps,
-    status: "completed",
-    session_type: "manual",
-    source: "manual",
-    competitive: false,
   }
 }
 
@@ -335,43 +339,42 @@ export async function fetchCombinedWorkoutSessionSummaries(params: {
 
   let workoutQuery = supabase
     .from("workout_sessions")
-    .select("id, routine_id, started_at, ended_at, duration_minutes, total_volume_kg, total_sets, total_reps, status, session_type, notes")
+    .select(`
+      id,
+      routine_id,
+      started_at,
+      ended_at,
+      duration_minutes,
+      total_volume_kg,
+      total_sets,
+      total_reps,
+      status,
+      session_type,
+      notes,
+      routine:routines(name),
+      workout_sets(exercise_id),
+      session_machines(machine_id)
+    `)
     .eq("profile_id", athleteId)
+    .eq("status", "completed")
     .order("started_at", { ascending: false })
-
-  let manualQuery = supabase
-    .from("manual_training_sessions")
-    .select("id, created_at, total_volume, notes, sets_data")
-    .eq("athlete_id", athleteId)
-    .order("created_at", { ascending: false })
 
   if (startIso) {
     workoutQuery = workoutQuery.gte("started_at", startIso)
-    manualQuery = manualQuery.gte("created_at", startIso)
   }
 
   if (limit) {
     workoutQuery = workoutQuery.limit(limit)
-    manualQuery = manualQuery.limit(limit)
   }
 
-  const [
-    { data: workoutRows, error: workoutError },
-    { data: manualRows, error: manualError },
-  ] = await Promise.all([workoutQuery, manualQuery])
+  const { data: workoutRows, error: workoutError } = await workoutQuery
 
   if (workoutError) {
     throw workoutError
   }
 
-  if (manualError) {
-    throw manualError
-  }
-
-  return [
-    ...((workoutRows ?? []) as WorkoutSessionRow[]).map(mapWorkoutSessionSummary),
-    ...((manualRows ?? []) as ManualTrainingSessionRow[]).map(mapManualSessionSummary),
-  ]
+  return ((workoutRows ?? []) as WorkoutSessionRow[])
+    .map(mapWorkoutSessionSummary)
     .sort((left, right) => new Date(right.started_at).getTime() - new Date(left.started_at).getTime())
     .slice(0, limit ?? Number.MAX_SAFE_INTEGER)
 }

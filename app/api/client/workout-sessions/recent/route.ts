@@ -7,6 +7,7 @@ interface WorkoutSessionSummary {
   id: string
   routine_id: string | null
   started_at: string
+  date: string
   ended_at: string | null
   duration_minutes: number | null
   total_volume_kg: number
@@ -14,6 +15,10 @@ interface WorkoutSessionSummary {
   total_reps: number
   status: string
   session_type: string
+  routine_name: string
+  classification: "rutina" | "libre"
+  is_free_session: boolean
+  exercise_count: number
   source: "qr" | "manual"
   competitive: boolean
 }
