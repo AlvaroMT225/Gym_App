@@ -44,6 +44,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({
       success: true,
       session_id: session.id,
+      workout_session_id: session.workout_session_id,
       total_volume: session.total_volume,
       total_sets: session.totalSets,
       total_reps: session.totalReps,

@@ -86,7 +86,7 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    const supabase = await createClient()
+    const supabase = await createClient(request)
     const userId = sessionOrResponse.userId
 
     const { data: profile, error: profileError } = await supabase
@@ -116,6 +116,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({
       success: true,
       sessionId: session.id,
+      workout_session_id: session.workout_session_id,
       setsCount: session.totalSets,
       source: "manual",
       competitive: false,

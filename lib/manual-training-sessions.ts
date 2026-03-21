@@ -1,4 +1,5 @@
 import { createClient } from "@/lib/supabase/server"
+import { appendInteractionToWorkoutSession } from "@/lib/workout-session-lifecycle"
 
 export type WeightUnit = "kg" | "lb"
 export type SessionSource = "qr" | "manual"
@@ -58,6 +59,8 @@ interface WorkoutSessionRow {
   total_reps: number | null
   status: string | null
   session_type: string | null
+  source_flow: SessionSource | null
+  competitive: boolean | null
   notes: string | null
   routine: { name: string | null } | { name: string | null }[] | null
   workout_sets: { exercise_id: string | null }[] | null
@@ -284,16 +287,44 @@ export async function insertManualTrainingSession(params: {
     throw new Error("No se pudo guardar la sesión manual.")
   }
 
+  const parentSession = await appendInteractionToWorkoutSession({
+    supabase,
+    athleteId,
+    gymId,
+    machineId,
+    sourceFlow: "manual",
+    competitive: false,
+    totalVolumeKg: totals.totalVolume,
+    totalSets: totals.totalSets,
+    totalReps: totals.totalReps,
+    occurredAt: data.created_at,
+  })
+
+  const { error: parentLinkError } = await supabase
+    .from("manual_training_sessions")
+    .update({ workout_session_id: parentSession.workoutSessionId })
+    .eq("id", data.id)
+
+  if (parentLinkError) {
+    throw new Error("No se pudo enlazar la sesion manual al historial canonico.")
+  }
+
   return {
     id: data.id,
     created_at: data.created_at,
     total_volume: toNonNegativeNumber(data.total_volume),
+    workout_session_id: parentSession.workoutSessionId,
     ...totals,
   }
 }
 
 function mapWorkoutSessionSummary(row: WorkoutSessionRow): CombinedWorkoutSessionSummary {
-  const source: SessionSource = row.notes === "qr" ? "qr" : "manual"
+  const source: SessionSource =
+    row.source_flow === "qr" || row.source_flow === "manual"
+      ? row.source_flow
+      : row.notes === "qr"
+        ? "qr"
+        : "manual"
   const routine = normalizeOne(row.routine)
   const exerciseIds = new Set(
     (row.workout_sets ?? [])
@@ -325,7 +356,7 @@ function mapWorkoutSessionSummary(row: WorkoutSessionRow): CombinedWorkoutSessio
     is_free_session: isFreeSession,
     exercise_count: Math.max(exerciseIds.size, machineIds.size),
     source,
-    competitive: source === "qr",
+    competitive: typeof row.competitive === "boolean" ? row.competitive : source === "qr",
   }
 }
 
@@ -350,6 +381,8 @@ export async function fetchCombinedWorkoutSessionSummaries(params: {
       total_reps,
       status,
       session_type,
+      source_flow,
+      competitive,
       notes,
       routine:routines(name),
       workout_sets(exercise_id),

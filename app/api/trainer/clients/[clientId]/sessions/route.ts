@@ -34,6 +34,8 @@ interface SessionCommentRow {
 interface WorkoutSessionRow {
   id: string
   started_at: string
+  source_flow: "qr" | "manual" | null
+  competitive: boolean | null
   notes: string | null
   workout_sets: WorkoutSetRow[] | null
   session_comments: SessionCommentRow[] | null
@@ -72,6 +74,8 @@ export async function GET(
       .select(`
         id,
         started_at,
+        source_flow,
+        competitive,
         notes,
         workout_sets(
           id,
@@ -143,7 +147,12 @@ export async function GET(
       return {
         id: session.id,
         date: session.started_at,
-        source: session.notes === "qr" ? "qr" : "manual",
+        source:
+          session.source_flow === "qr" || session.source_flow === "manual"
+            ? session.source_flow
+            : session.notes === "qr"
+              ? "qr"
+              : "manual",
         exercise,
         sets: mappedSets,
         comments,

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
 import { requireRoleFromRequest } from "@/lib/auth/guards"
 import { createAdminClient, createClient } from "@/lib/supabase/server"
+import { appendInteractionToWorkoutSession } from "@/lib/workout-session-lifecycle"
 
 type WeightUnit = "kg" | "lb"
 
@@ -512,6 +513,8 @@ export async function POST(request: NextRequest) {
     }
 
     const totalVolume = sets_data.reduce((acc, set) => acc + set.weight_kg * set.reps, 0)
+    const totalSets = sets_data.length
+    const totalReps = sets_data.reduce((acc, set) => acc + set.reps, 0)
 
     const { data: machine, error: machineError } = await supabase
       .from("machines")
@@ -553,21 +556,47 @@ export async function POST(request: NextRequest) {
 
     const sessionXp = totalVolume * factorProgreso * 0.01
 
-    const { error: insertError } = await supabase.from("qr_sessions").insert({
-      athlete_id: athleteId,
-      gym_id: gymId,
-      machine_id,
-      sets_data,
-      notes,
-      total_volume: totalVolume,
-      factor_progreso: factorProgreso,
-      session_xp: sessionXp,
-      region,
-      primary_muscle_group: primaryMuscleGroup,
+    const { data: insertedQrSession, error: insertError } = await supabase
+      .from("qr_sessions")
+      .insert({
+        athlete_id: athleteId,
+        gym_id: gymId,
+        machine_id,
+        sets_data,
+        notes,
+        total_volume: totalVolume,
+        factor_progreso: factorProgreso,
+        session_xp: sessionXp,
+        region,
+        primary_muscle_group: primaryMuscleGroup,
+      })
+      .select("id, created_at")
+      .single()
+
+    if (insertError || !insertedQrSession) {
+      throw insertError ?? new Error("No se pudo guardar la sesión QR.")
+    }
+
+    const parentSession = await appendInteractionToWorkoutSession({
+      supabase,
+      athleteId,
+      gymId,
+      machineId: machine_id,
+      sourceFlow: "qr",
+      competitive: true,
+      totalVolumeKg: totalVolume,
+      totalSets,
+      totalReps,
+      occurredAt: insertedQrSession.created_at,
     })
 
-    if (insertError) {
-      throw insertError
+    const { error: parentLinkError } = await supabase
+      .from("qr_sessions")
+      .update({ workout_session_id: parentSession.workoutSessionId })
+      .eq("id", insertedQrSession.id)
+
+    if (parentLinkError) {
+      throw parentLinkError
     }
 
     const { data: currentXp, error: currentXpError } = await supabase
@@ -693,6 +722,7 @@ export async function POST(request: NextRequest) {
       session_xp: sessionXp,
       factor_progreso: factorProgreso,
       total_volume: totalVolume,
+      workout_session_id: parentSession.workoutSessionId,
       rankings_recalculated: rankingsRecalculated,
       rank_regional: rankRegional,
       rank_global: rankGlobal,
