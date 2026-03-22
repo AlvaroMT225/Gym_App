@@ -48,6 +48,11 @@ export interface CombinedWorkoutSessionSummary {
   competitive: boolean
 }
 
+export interface GroupedWorkoutSessionSummary extends CombinedWorkoutSessionSummary {
+  session_ids: string[]
+  session_count: number
+}
+
 interface WorkoutSessionRow {
   id: string
   routine_id: string | null
@@ -116,6 +121,30 @@ function normalizeWeightToKg(weight: number, unit: WeightUnit): number {
 function normalizeOne<T>(value: T | T[] | null): T | null {
   if (!value) return null
   return Array.isArray(value) ? (value[0] ?? null) : value
+}
+
+function resolveWorkoutSessionSource(row: WorkoutSessionRow): SessionSource {
+  if (row.source_flow === "qr" || row.source_flow === "manual") {
+    return row.source_flow
+  }
+
+  return row.notes === "qr" ? "qr" : "manual"
+}
+
+function getWorkoutSessionExerciseIds(row: WorkoutSessionRow) {
+  return new Set(
+    (row.workout_sets ?? [])
+      .map((set) => (typeof set.exercise_id === "string" ? set.exercise_id : null))
+      .filter((value): value is string => value !== null)
+  )
+}
+
+function getWorkoutSessionMachineIds(row: WorkoutSessionRow) {
+  return new Set(
+    (row.session_machines ?? [])
+      .map((entry) => (typeof entry.machine_id === "string" ? entry.machine_id : null))
+      .filter((value): value is string => value !== null)
+  )
 }
 
 export function parseNormalizedTrainingSets(value: unknown): NormalizedTrainingSet[] | null {
@@ -319,23 +348,10 @@ export async function insertManualTrainingSession(params: {
 }
 
 function mapWorkoutSessionSummary(row: WorkoutSessionRow): CombinedWorkoutSessionSummary {
-  const source: SessionSource =
-    row.source_flow === "qr" || row.source_flow === "manual"
-      ? row.source_flow
-      : row.notes === "qr"
-        ? "qr"
-        : "manual"
+  const source = resolveWorkoutSessionSource(row)
   const routine = normalizeOne(row.routine)
-  const exerciseIds = new Set(
-    (row.workout_sets ?? [])
-      .map((set) => (typeof set.exercise_id === "string" ? set.exercise_id : null))
-      .filter((value): value is string => value !== null)
-  )
-  const machineIds = new Set(
-    (row.session_machines ?? [])
-      .map((entry) => (typeof entry.machine_id === "string" ? entry.machine_id : null))
-      .filter((value): value is string => value !== null)
-  )
+  const exerciseIds = getWorkoutSessionExerciseIds(row)
+  const machineIds = getWorkoutSessionMachineIds(row)
   const isFreeSession = row.routine_id === null
   const routineName = !isFreeSession && routine?.name ? routine.name : "Sesi\u00f3n Libre"
 
@@ -360,7 +376,7 @@ function mapWorkoutSessionSummary(row: WorkoutSessionRow): CombinedWorkoutSessio
   }
 }
 
-export async function fetchCombinedWorkoutSessionSummaries(params: {
+function buildWorkoutSessionQuery(params: {
   supabase: SupabaseClient
   athleteId: string
   startIso?: string
@@ -400,13 +416,153 @@ export async function fetchCombinedWorkoutSessionSummaries(params: {
     workoutQuery = workoutQuery.limit(limit)
   }
 
-  const { data: workoutRows, error: workoutError } = await workoutQuery
+  return workoutQuery
+}
+
+async function fetchWorkoutSessionRows(params: {
+  supabase: SupabaseClient
+  athleteId: string
+  startIso?: string
+  limit?: number
+}) {
+  const { data: workoutRows, error: workoutError } = await buildWorkoutSessionQuery(params)
 
   if (workoutError) {
     throw workoutError
   }
 
-  return ((workoutRows ?? []) as WorkoutSessionRow[])
+  return (workoutRows ?? []) as WorkoutSessionRow[]
+}
+
+function toTimestamp(value: string | null) {
+  if (!value) {
+    return Number.NaN
+  }
+
+  return new Date(value).getTime()
+}
+
+function formatDateInTimeZone(dateIso: string, timeZone: string) {
+  return new Intl.DateTimeFormat("en-CA", {
+    timeZone,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).format(new Date(dateIso))
+}
+
+function sumDurationMinutes(rows: WorkoutSessionRow[]) {
+  const durationValues = rows
+    .map((row) => row.duration_minutes)
+    .filter((value): value is number => typeof value === "number" && Number.isFinite(value))
+
+  if (durationValues.length === 0) {
+    return null
+  }
+
+  return durationValues.reduce((sum, value) => sum + value, 0)
+}
+
+export async function fetchGroupedWorkoutSessionSummariesByDate(params: {
+  supabase: SupabaseClient
+  athleteId: string
+  startIso?: string
+  limit?: number
+  timeZone?: string
+}) {
+  const { limit, timeZone = "America/Guayaquil" } = params
+  const workoutRows = await fetchWorkoutSessionRows(params)
+  const rowsByDay = new Map<string, WorkoutSessionRow[]>()
+
+  for (const row of workoutRows) {
+    const dayKey = formatDateInTimeZone(row.started_at, timeZone)
+    const existingRows = rowsByDay.get(dayKey)
+
+    if (existingRows) {
+      existingRows.push(row)
+    } else {
+      rowsByDay.set(dayKey, [row])
+    }
+  }
+
+  const groupedSummaries = Array.from(rowsByDay.entries())
+    .map(([dayKey, rows]) => {
+      const sortedRows = [...rows].sort(
+        (left, right) => new Date(right.started_at).getTime() - new Date(left.started_at).getTime()
+      )
+      const latestRow = sortedRows[0]
+      const latestSummary = mapWorkoutSessionSummary(latestRow)
+      const sessionIds = sortedRows.map((row) => row.id)
+      const distinctRoutineIds = new Set(
+        sortedRows
+          .map((row) => row.routine_id)
+          .filter((value): value is string => typeof value === "string")
+      )
+      const hasFreeSession = sortedRows.some((row) => row.routine_id === null)
+      const hasSingleRoutineTemplate = !hasFreeSession && distinctRoutineIds.size === 1
+      const exerciseIds = new Set<string>()
+      const machineIds = new Set<string>()
+
+      for (const row of sortedRows) {
+        for (const exerciseId of getWorkoutSessionExerciseIds(row)) {
+          exerciseIds.add(exerciseId)
+        }
+
+        for (const machineId of getWorkoutSessionMachineIds(row)) {
+          machineIds.add(machineId)
+        }
+      }
+
+      const earliestStartedAt =
+        [...sortedRows]
+          .sort((left, right) => new Date(left.started_at).getTime() - new Date(right.started_at).getTime())[0]
+          ?.started_at ?? latestRow.started_at
+      const latestEndedAt =
+        sortedRows
+          .map((row) => row.ended_at)
+          .filter((value): value is string => typeof value === "string")
+          .sort((left, right) => toTimestamp(right) - toTimestamp(left))[0] ?? null
+
+      return {
+        id: latestRow.id,
+        session_ids: sessionIds,
+        session_count: sessionIds.length,
+        routine_id: hasSingleRoutineTemplate ? latestSummary.routine_id : null,
+        started_at: earliestStartedAt,
+        date: dayKey,
+        ended_at: latestEndedAt,
+        duration_minutes: sumDurationMinutes(sortedRows),
+        total_volume_kg: roundToDecimals(
+          sortedRows.reduce((sum, row) => sum + toNonNegativeNumber(row.total_volume_kg), 0),
+          2
+        ),
+        total_sets: sortedRows.reduce((sum, row) => sum + toNonNegativeNumber(row.total_sets), 0),
+        total_reps: sortedRows.reduce((sum, row) => sum + toNonNegativeNumber(row.total_reps), 0),
+        status: "completed",
+        session_type: latestSummary.session_type,
+        routine_name: hasSingleRoutineTemplate ? latestSummary.routine_name : "Entrenamiento Libre",
+        classification: hasSingleRoutineTemplate ? "rutina" : "libre",
+        is_free_session: !hasSingleRoutineTemplate,
+        exercise_count: Math.max(exerciseIds.size, machineIds.size),
+        source: latestSummary.source,
+        competitive: sortedRows.some((row) => row.competitive === true),
+      } satisfies GroupedWorkoutSessionSummary
+    })
+    .sort((left, right) => toTimestamp(right.started_at) - toTimestamp(left.started_at))
+
+  return groupedSummaries.slice(0, limit ?? Number.MAX_SAFE_INTEGER)
+}
+
+export async function fetchCombinedWorkoutSessionSummaries(params: {
+  supabase: SupabaseClient
+  athleteId: string
+  startIso?: string
+  limit?: number
+}) {
+  const { limit } = params
+  const workoutRows = await fetchWorkoutSessionRows(params)
+
+  return workoutRows
     .map(mapWorkoutSessionSummary)
     .sort((left, right) => new Date(right.started_at).getTime() - new Date(left.started_at).getTime())
     .slice(0, limit ?? Number.MAX_SAFE_INTEGER)

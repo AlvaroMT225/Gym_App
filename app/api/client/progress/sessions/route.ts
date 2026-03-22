@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
 import { requireRoleFromRequest } from "@/lib/auth/guards"
 import { createClient } from "@/lib/supabase/server"
-import { fetchCombinedWorkoutSessionSummaries } from "@/lib/manual-training-sessions"
+import { fetchGroupedWorkoutSessionSummariesByDate } from "@/lib/manual-training-sessions"
 
 type AllowedDays = 7 | 30 | 90
 
@@ -17,6 +17,8 @@ function parseDays(daysParam: string | null): AllowedDays {
 
 interface WorkoutSessionSummary {
   id: string
+  session_ids: string[]
+  session_count: number
   routine_id: string | null
   started_at: string
   date: string
@@ -44,13 +46,33 @@ export async function GET(request: NextRequest) {
     const userId = sessionOrResponse.userId
     const days = parseDays(request.nextUrl.searchParams.get("days"))
     const startIso = new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString()
+    let timeZone = "America/Guayaquil"
+
+    const { data: profile } = await supabase
+      .from("profiles")
+      .select("gym_id")
+      .eq("id", userId)
+      .maybeSingle()
+
+    if (profile?.gym_id) {
+      const { data: gym } = await supabase
+        .from("gyms")
+        .select("timezone")
+        .eq("id", profile.gym_id)
+        .maybeSingle()
+
+      if (typeof gym?.timezone === "string" && gym.timezone.trim().length > 0) {
+        timeZone = gym.timezone.trim()
+      }
+    }
 
     let sessions: WorkoutSessionSummary[]
     try {
-      sessions = await fetchCombinedWorkoutSessionSummaries({
+      sessions = await fetchGroupedWorkoutSessionSummariesByDate({
         supabase,
         athleteId: userId,
         startIso,
+        timeZone,
       })
     } catch (sessionsError) {
       console.error("GET /api/client/progress/sessions query error:", sessionsError)
