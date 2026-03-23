@@ -46,6 +46,7 @@ export async function appendInteractionToWorkoutSession(params: {
   athleteId: string
   gymId: string
   machineId: string
+  routineId?: string | null
   sourceFlow: WorkoutSessionSourceFlow
   competitive: boolean
   totalVolumeKg: number
@@ -58,6 +59,7 @@ export async function appendInteractionToWorkoutSession(params: {
     athleteId,
     gymId,
     machineId,
+    routineId,
     sourceFlow,
     competitive,
     totalVolumeKg,
@@ -71,18 +73,21 @@ export async function appendInteractionToWorkoutSession(params: {
     new Date(eventAt).getTime() - WORKOUT_SESSION_MERGE_WINDOW_MS
   ).toISOString()
 
-  const { data: existingRow, error: existingError } = await supabase
+  const existingQuery = supabase
     .from("workout_sessions")
     .select("id, started_at, ended_at, total_volume_kg, total_sets, total_reps")
     .eq("profile_id", athleteId)
     .eq("status", "completed")
-    .is("routine_id", null)
     .eq("source_flow", sourceFlow)
     .eq("competitive", competitive)
     .gte("updated_at", mergeWindowStartIso)
     .order("updated_at", { ascending: false })
     .limit(1)
-    .maybeSingle()
+
+  const { data: existingRow, error: existingError } =
+    typeof routineId === "string" && routineId.length > 0
+      ? await existingQuery.eq("routine_id", routineId).maybeSingle()
+      : await existingQuery.is("routine_id", null).maybeSingle()
 
   if (existingError) {
     throw existingError
@@ -119,6 +124,7 @@ export async function appendInteractionToWorkoutSession(params: {
       .insert({
         profile_id: athleteId,
         gym_id: gymId,
+        routine_id: routineId ?? null,
         started_at: eventAt,
         ended_at: eventAt,
         duration_minutes: 1,

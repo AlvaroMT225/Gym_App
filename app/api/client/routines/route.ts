@@ -7,6 +7,7 @@ interface ExerciseRow {
   name: string
   muscle_groups: string[] | null
   machine_id: string | null
+  machine: { name: string | null } | { name: string | null }[] | null
 }
 
 interface RoutineExerciseRow {
@@ -39,6 +40,7 @@ interface RoutineItemDto {
   exerciseName: string | null
   muscleGroups: string[] | null
   machineId: string | null
+  machineName: string | null
   setsTarget: number
   repsTarget: number
   weightTarget: number | null
@@ -63,6 +65,14 @@ function normalizeExercise(
   if (!exercise) return null
   if (Array.isArray(exercise)) return exercise[0] ?? null
   return exercise
+}
+
+function normalizeMachine(
+  machine: ExerciseRow["machine"]
+): { name: string | null } | null {
+  if (!machine) return null
+  if (Array.isArray(machine)) return machine[0] ?? null
+  return machine
 }
 
 export async function GET(request: NextRequest) {
@@ -96,11 +106,13 @@ export async function GET(request: NextRequest) {
             id,
             name,
             muscle_groups,
-            machine_id
+            machine_id,
+            machine:machines(name)
           )
         )
       `)
       .eq("profile_id", userId)
+      .eq("is_active", true)
       .order("updated_at", { ascending: false })
 
     if (routinesError) {
@@ -114,6 +126,7 @@ export async function GET(request: NextRequest) {
         .sort((a, b) => a.order_index - b.order_index)
         .map((item) => {
           const exercise = normalizeExercise(item.exercise)
+          const machine = normalizeMachine(exercise?.machine ?? null)
           return {
             id: item.id,
             orderIndex: item.order_index,
@@ -121,6 +134,7 @@ export async function GET(request: NextRequest) {
             exerciseName: exercise?.name ?? null,
             muscleGroups: exercise?.muscle_groups ?? null,
             machineId: exercise?.machine_id ?? null,
+            machineName: machine?.name ?? null,
             setsTarget: item.sets_target,
             repsTarget: item.reps_target,
             weightTarget: item.weight_target,

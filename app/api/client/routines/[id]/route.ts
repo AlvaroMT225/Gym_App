@@ -7,6 +7,7 @@ interface ExerciseRow {
   name: string
   muscle_groups: string[] | null
   machine_id: string | null
+  machine: { name: string | null } | { name: string | null }[] | null
 }
 
 interface RoutineExerciseRow {
@@ -39,6 +40,7 @@ interface RoutineItemDto {
   exerciseName: string | null
   muscleGroups: string[] | null
   machineId: string | null
+  machineName: string | null
   setsTarget: number
   repsTarget: number
   weightTarget: number | null
@@ -65,11 +67,20 @@ function normalizeExercise(
   return exercise
 }
 
+function normalizeMachine(
+  machine: ExerciseRow["machine"]
+): { name: string | null } | null {
+  if (!machine) return null
+  if (Array.isArray(machine)) return machine[0] ?? null
+  return machine
+}
+
 function mapRoutineRow(routine: RoutineRow): RoutineDto {
   const items = [...(routine.routine_exercises ?? [])]
     .sort((a, b) => a.order_index - b.order_index)
     .map((item) => {
       const exercise = normalizeExercise(item.exercise)
+      const machine = normalizeMachine(exercise?.machine ?? null)
       return {
         id: item.id,
         orderIndex: item.order_index,
@@ -77,6 +88,7 @@ function mapRoutineRow(routine: RoutineRow): RoutineDto {
         exerciseName: exercise?.name ?? null,
         muscleGroups: exercise?.muscle_groups ?? null,
         machineId: exercise?.machine_id ?? null,
+        machineName: machine?.name ?? null,
         setsTarget: item.sets_target,
         repsTarget: item.reps_target,
         weightTarget: item.weight_target,
@@ -132,7 +144,8 @@ export async function GET(
             id,
             name,
             muscle_groups,
-            machine_id
+            machine_id,
+            machine:machines(name)
           )
         )
       `)

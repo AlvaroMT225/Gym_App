@@ -111,6 +111,9 @@ export async function POST(request: NextRequest) {
       machineId: body.machine_id,
       setsData: body.sets_data,
       notes: body.notes,
+      routineId: body.routineId,
+      exerciseId: body.exerciseId,
+      exerciseName: body.exerciseName,
     })
 
     return NextResponse.json({

@@ -2,6 +2,11 @@ import { NextRequest, NextResponse } from "next/server"
 import { requireRoleFromRequest } from "@/lib/auth/guards"
 import { createAdminClient, createClient } from "@/lib/supabase/server"
 import { appendInteractionToWorkoutSession } from "@/lib/workout-session-lifecycle"
+import {
+  parseWorkoutContextInput,
+  resolveWorkoutContext,
+  serializeSessionMetadataNotes,
+} from "@/lib/workout-flow-context"
 
 type WeightUnit = "kg" | "lb"
 
@@ -17,6 +22,9 @@ interface QrSessionRequestBody {
   machine_id: string
   sets_data: NormalizedSetData[]
   notes?: string
+  routineId?: string | null
+  exerciseId?: string | null
+  exerciseName?: string | null
 }
 
 interface AthleteXpTotalsRow {
@@ -276,6 +284,7 @@ function parseRequestBody(value: unknown): QrSessionRequestBody | null {
     machine_id: machineId,
     sets_data: setsData,
     notes,
+    ...parseWorkoutContextInput(value),
   }
 }
 
@@ -526,6 +535,17 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "Machine not found" }, { status: 404 })
     }
 
+    const workoutContext = await resolveWorkoutContext({
+      supabase,
+      athleteId,
+      machineId: machine_id,
+      input: {
+        routineId: body.routineId ?? null,
+        exerciseId: body.exerciseId ?? null,
+        exerciseName: body.exerciseName ?? null,
+      },
+    })
+
     const region = typeof machine.region === "string" ? machine.region : ""
     const primaryMuscleGroup =
       typeof machine.primary_muscle_group === "string" ? machine.primary_muscle_group : null
@@ -563,7 +583,7 @@ export async function POST(request: NextRequest) {
         gym_id: gymId,
         machine_id,
         sets_data,
-        notes,
+        notes: serializeSessionMetadataNotes(notes, workoutContext),
         total_volume: totalVolume,
         factor_progreso: factorProgreso,
         session_xp: sessionXp,
@@ -582,6 +602,7 @@ export async function POST(request: NextRequest) {
       athleteId,
       gymId,
       machineId: machine_id,
+      routineId: workoutContext.routineId,
       sourceFlow: "qr",
       competitive: true,
       totalVolumeKg: totalVolume,
