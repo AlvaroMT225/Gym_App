@@ -1,5 +1,11 @@
 import { createClient } from "@/lib/supabase/server"
 import { appendInteractionToWorkoutSession } from "@/lib/workout-session-lifecycle"
+import {
+  parseWorkoutContextInput,
+  resolveWorkoutContext,
+  serializeSessionMetadataNotes,
+  type WorkoutContextInput,
+} from "@/lib/workout-flow-context"
 
 export type WeightUnit = "kg" | "lb"
 export type SessionSource = "qr" | "manual"
@@ -24,7 +30,9 @@ export interface ManualSessionBody {
   notes?: string
 }
 
-export interface LegacyManualSessionBody extends ManualSessionBody {
+export interface ManualSessionBodyWithContext extends ManualSessionBody, WorkoutContextInput {}
+
+export interface LegacyManualSessionBody extends ManualSessionBodyWithContext {
   source?: string
 }
 
@@ -180,7 +188,7 @@ export function parseNormalizedTrainingSets(value: unknown): NormalizedTrainingS
   return sets
 }
 
-export function parseManualSessionBody(value: unknown): ManualSessionBody | null {
+export function parseManualSessionBody(value: unknown): ManualSessionBodyWithContext | null {
   if (!isRecord(value)) {
     return null
   }
@@ -197,6 +205,7 @@ export function parseManualSessionBody(value: unknown): ManualSessionBody | null
     machine_id: machineId,
     sets_data: setsData,
     notes,
+    ...parseWorkoutContextInput(value),
   }
 }
 
@@ -219,6 +228,7 @@ export function parseLegacyManualSessionBody(value: unknown): LegacyManualSessio
     sets_data: setsData,
     notes,
     source,
+    ...parseWorkoutContextInput(value),
   }
 }
 
@@ -279,6 +289,9 @@ export async function insertManualTrainingSession(params: {
   machineId: string
   setsData: NormalizedTrainingSet[]
   notes?: string
+  routineId?: string | null
+  exerciseId?: string | null
+  exerciseName?: string | null
 }) {
   const { supabase, athleteId, gymId, machineId, setsData, notes } = params
 
@@ -297,6 +310,17 @@ export async function insertManualTrainingSession(params: {
     throw new Error("La máquina no existe en tu gimnasio.")
   }
 
+  const workoutContext = await resolveWorkoutContext({
+    supabase,
+    athleteId,
+    machineId,
+    input: {
+      routineId: params.routineId ?? null,
+      exerciseId: params.exerciseId ?? null,
+      exerciseName: params.exerciseName ?? null,
+    },
+  })
+
   const totals = calculateTrainingTotals(setsData)
   const { data, error } = await supabase
     .from("manual_training_sessions")
@@ -306,7 +330,7 @@ export async function insertManualTrainingSession(params: {
       machine_id: machineId,
       sets_data: setsData,
       total_volume: totals.totalVolume,
-      notes: notes?.trim() || null,
+      notes: serializeSessionMetadataNotes(notes, workoutContext),
       is_competitive: false,
     })
     .select("id, created_at, total_volume")
@@ -321,6 +345,7 @@ export async function insertManualTrainingSession(params: {
     athleteId,
     gymId,
     machineId,
+    routineId: workoutContext.routineId,
     sourceFlow: "manual",
     competitive: false,
     totalVolumeKg: totals.totalVolume,
@@ -451,6 +476,14 @@ function formatDateInTimeZone(dateIso: string, timeZone: string) {
   }).format(new Date(dateIso))
 }
 
+function buildGroupedWorkoutSessionKey(row: WorkoutSessionRow, timeZone: string) {
+  const dayKey = formatDateInTimeZone(row.started_at, timeZone)
+  const routineKey =
+    typeof row.routine_id === "string" && row.routine_id.length > 0 ? row.routine_id : "free"
+
+  return `${dayKey}::${routineKey}`
+}
+
 function sumDurationMinutes(rows: WorkoutSessionRow[]) {
   const durationValues = rows
     .map((row) => row.duration_minutes)
@@ -472,26 +505,27 @@ export async function fetchGroupedWorkoutSessionSummariesByDate(params: {
 }) {
   const { limit, timeZone = "America/Guayaquil" } = params
   const workoutRows = await fetchWorkoutSessionRows(params)
-  const rowsByDay = new Map<string, WorkoutSessionRow[]>()
+  const rowsByGroup = new Map<string, WorkoutSessionRow[]>()
 
   for (const row of workoutRows) {
-    const dayKey = formatDateInTimeZone(row.started_at, timeZone)
-    const existingRows = rowsByDay.get(dayKey)
+    const groupKey = buildGroupedWorkoutSessionKey(row, timeZone)
+    const existingRows = rowsByGroup.get(groupKey)
 
     if (existingRows) {
       existingRows.push(row)
     } else {
-      rowsByDay.set(dayKey, [row])
+      rowsByGroup.set(groupKey, [row])
     }
   }
 
-  const groupedSummaries = Array.from(rowsByDay.entries())
-    .map(([dayKey, rows]) => {
+  const groupedSummaries = Array.from(rowsByGroup.entries())
+    .map(([groupKey, rows]) => {
       const sortedRows = [...rows].sort(
         (left, right) => new Date(right.started_at).getTime() - new Date(left.started_at).getTime()
       )
       const latestRow = sortedRows[0]
       const latestSummary = mapWorkoutSessionSummary(latestRow)
+      const [dayKey] = groupKey.split("::")
       const sessionIds = sortedRows.map((row) => row.id)
       const distinctRoutineIds = new Set(
         sortedRows
