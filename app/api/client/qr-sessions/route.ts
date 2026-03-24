@@ -1,7 +1,10 @@
 import { NextRequest, NextResponse } from "next/server"
 import { requireRoleFromRequest } from "@/lib/auth/guards"
 import { createAdminClient, createClient } from "@/lib/supabase/server"
-import { appendInteractionToWorkoutSession } from "@/lib/workout-session-lifecycle"
+import {
+  appendInteractionToWorkoutSession,
+  ensureGuidedQrWorkoutSession,
+} from "@/lib/workout-session-lifecycle"
 import {
   parseWorkoutContextInput,
   resolveWorkoutContext,
@@ -575,6 +578,14 @@ export async function POST(request: NextRequest) {
     }
 
     const sessionXp = totalVolume * factorProgreso * 0.01
+    const guidedParentSession = workoutContext.routineId
+      ? await ensureGuidedQrWorkoutSession({
+          supabase,
+          athleteId,
+          gymId,
+          routineId: workoutContext.routineId,
+        })
+      : null
 
     const { data: insertedQrSession, error: insertError } = await supabase
       .from("qr_sessions")
@@ -589,6 +600,7 @@ export async function POST(request: NextRequest) {
         session_xp: sessionXp,
         region,
         primary_muscle_group: primaryMuscleGroup,
+        workout_session_id: guidedParentSession?.workoutSessionId ?? null,
       })
       .select("id, created_at")
       .single()
@@ -602,6 +614,7 @@ export async function POST(request: NextRequest) {
       athleteId,
       gymId,
       machineId: machine_id,
+      workoutSessionId: guidedParentSession?.workoutSessionId ?? null,
       routineId: workoutContext.routineId,
       sourceFlow: "qr",
       competitive: true,
@@ -611,13 +624,15 @@ export async function POST(request: NextRequest) {
       occurredAt: insertedQrSession.created_at,
     })
 
-    const { error: parentLinkError } = await supabase
-      .from("qr_sessions")
-      .update({ workout_session_id: parentSession.workoutSessionId })
-      .eq("id", insertedQrSession.id)
+    if (!guidedParentSession) {
+      const { error: parentLinkError } = await supabase
+        .from("qr_sessions")
+        .update({ workout_session_id: parentSession.workoutSessionId })
+        .eq("id", insertedQrSession.id)
 
-    if (parentLinkError) {
-      throw parentLinkError
+      if (parentLinkError) {
+        throw parentLinkError
+      }
     }
 
     const { data: currentXp, error: currentXpError } = await supabase

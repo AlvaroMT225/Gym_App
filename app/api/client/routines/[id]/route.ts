@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
 import { requireRoleFromRequest } from "@/lib/auth/guards"
 import { createClient } from "@/lib/supabase/server"
+import { ensureGuidedQrWorkoutSession } from "@/lib/workout-session-lifecycle"
 
 interface ExerciseRow {
   id: string
@@ -167,6 +168,63 @@ export async function GET(
     })
   } catch (error) {
     console.error("GET /api/client/routines/[id] unexpected error:", error)
+    return NextResponse.json({ error: "Error interno del servidor" }, { status: 500 })
+  }
+}
+
+export async function POST(
+  request: NextRequest,
+  { params }: { params: Promise<{ id: string }> }
+) {
+  const { id: routineId } = await params
+  const sessionOrResponse = await requireRoleFromRequest(request, ["USER"])
+  if (sessionOrResponse instanceof NextResponse) return sessionOrResponse
+
+  try {
+    const supabase = await createClient(request)
+    const userId = sessionOrResponse.userId
+
+    const [{ data: profile, error: profileError }, { data: routine, error: routineError }] =
+      await Promise.all([
+        supabase.from("profiles").select("gym_id").eq("id", userId).maybeSingle(),
+        supabase.from("routines").select("id").eq("id", routineId).eq("profile_id", userId).maybeSingle(),
+      ])
+
+    if (profileError) {
+      console.error("POST /api/client/routines/[id] profile error:", profileError)
+      return NextResponse.json({ error: "Error al obtener perfil" }, { status: 500 })
+    }
+
+    if (routineError) {
+      console.error("POST /api/client/routines/[id] routine error:", routineError)
+      return NextResponse.json({ error: "Error al iniciar rutina" }, { status: 500 })
+    }
+
+    if (!routine) {
+      return NextResponse.json({ error: "Rutina no encontrada" }, { status: 404 })
+    }
+
+    if (!profile?.gym_id) {
+      return NextResponse.json({ error: "Perfil sin gimnasio asignado" }, { status: 400 })
+    }
+
+    const activeSession = await ensureGuidedQrWorkoutSession({
+      supabase,
+      athleteId: userId,
+      gymId: profile.gym_id,
+      routineId,
+      startedAt: new Date().toISOString(),
+      startMode: "explicit_start",
+    })
+
+    return NextResponse.json({
+      success: true,
+      workout_session_id: activeSession.workoutSessionId,
+      started_at: activeSession.startedAt,
+      created: activeSession.created,
+    })
+  } catch (error) {
+    console.error("POST /api/client/routines/[id] unexpected error:", error)
     return NextResponse.json({ error: "Error interno del servidor" }, { status: 500 })
   }
 }
