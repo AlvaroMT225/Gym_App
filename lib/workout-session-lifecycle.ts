@@ -287,6 +287,8 @@ export async function ensureGuidedQrWorkoutSession(params: {
 }) {
   const { supabase, athleteId, gymId, routineId, startedAt, startMode = "resume_or_create" } = params
   const canonicalStartedAt = startedAt ?? new Date().toISOString()
+  const GUIDED_SESSION_MAX_AGE_MS = 4 * 60 * 60 * 1000
+  const staleThreshold = new Date(Date.now() - GUIDED_SESSION_MAX_AGE_MS).toISOString()
 
   const { data: existingRow, error: existingError } = await supabase
     .from("workout_sessions")
@@ -296,6 +298,7 @@ export async function ensureGuidedQrWorkoutSession(params: {
     .eq("source_flow", "qr")
     .eq("competitive", true)
     .eq("status", "active")
+    .gte("updated_at", staleThreshold)
     .order("updated_at", { ascending: false })
     .limit(1)
     .maybeSingle()
