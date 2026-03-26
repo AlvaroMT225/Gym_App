@@ -424,7 +424,7 @@ export default function MachinesPage() {
       const cols = 2
       const rows = 3
       const cellW = (pageW - margin * 2) / cols
-      const cellH = 76
+      const cellH = 80
       const qrSize = 48
       const dateStr = new Date().toLocaleDateString("es-EC", { day: "2-digit", month: "long", year: "numeric" })
 
@@ -474,9 +474,10 @@ export default function MachinesPage() {
         } catch { /* skip QR image on error */ }
 
         // Machine name
+        const displayName = machine.name.length > 28 ? machine.name.substring(0, 26) + "..." : machine.name
         doc.setFontSize(9)
         doc.setFont("helvetica", "bold")
-        doc.text(machine.name, x + cellW / 2, y + qrSize + 10, { align: "center", maxWidth: cellW - 6 })
+        doc.text(displayName, x + cellW / 2, y + qrSize + 10, { align: "center", maxWidth: cellW - 6 })
 
         // QR code string
         doc.setFontSize(7)
