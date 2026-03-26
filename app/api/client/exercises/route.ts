@@ -1,3 +1,4 @@
+// v2 - cache-busted build
 import { NextRequest, NextResponse } from "next/server"
 import { requireRoleFromRequest } from "@/lib/auth/guards"
 import { createClient } from "@/lib/supabase/server"
@@ -82,7 +83,9 @@ export async function GET(request: NextRequest) {
       }
     })
 
-    return NextResponse.json({ exercises })
+    return NextResponse.json({ exercises }, {
+      headers: { "Cache-Control": "no-store, no-cache, must-revalidate" },
+    })
   } catch (err) {
     console.error("GET /api/client/exercises unexpected error:", err)
     return NextResponse.json({ error: "Error interno del servidor" }, { status: 500 })
