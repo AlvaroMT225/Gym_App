@@ -29,6 +29,67 @@ export const routineSchema = z.object({
   ).min(1),
 })
 
+const routineExerciseWriteSchema = z.object({
+  exercise_id: z.string().uuid(),
+  order_index: z.number().int(),
+  sets_target: z.number().int().positive(),
+  reps_target: z.number().int().positive(),
+  rest_seconds: z.number().int().nonnegative().nullable().optional(),
+  weight_target: z.number().nonnegative().nullable().optional(),
+  notes: z.string().max(500).nullable().optional(),
+})
+
+function validateUniqueRoutineOrderIndexes(
+  exercises: Array<{ order_index: number }>,
+  ctx: z.RefinementCtx
+) {
+  const seen = new Set<number>()
+
+  exercises.forEach((exercise, index) => {
+    if (seen.has(exercise.order_index)) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "No se permiten ejercicios con el mismo order_index",
+        path: [index, "order_index"],
+      })
+      return
+    }
+
+    seen.add(exercise.order_index)
+  })
+}
+
+export const routineCreateBodySchema = z
+  .object({
+    name: z.string().trim().min(1).max(100),
+    description: z.string().trim().max(1000).nullable().optional(),
+    exercises: z.array(routineExerciseWriteSchema).min(1),
+  })
+  .strict()
+  .superRefine((data, ctx) => {
+    validateUniqueRoutineOrderIndexes(data.exercises, ctx)
+  })
+
+export const routinePatchBodySchema = z
+  .object({
+    name: z.string().trim().min(1).max(100).optional(),
+    description: z.string().trim().max(1000).nullable().optional(),
+    exercises: z.array(routineExerciseWriteSchema).min(1).optional(),
+  })
+  .strict()
+  .refine(
+    (data) =>
+      data.name !== undefined ||
+      data.description !== undefined ||
+      data.exercises !== undefined,
+    { message: "Se requiere al menos name, description o exercises" }
+  )
+  .superRefine((data, ctx) => {
+    if (data.exercises) {
+      validateUniqueRoutineOrderIndexes(data.exercises, ctx)
+    }
+  })
+
 // C. consent
 export const consentSchema = z.object({
   trainer_id: z.string().uuid(),

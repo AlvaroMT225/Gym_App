@@ -4,6 +4,7 @@ import { createAdminClient, createClient } from "@/lib/supabase/server"
 import {
   appendInteractionToWorkoutSession,
   ensureGuidedQrWorkoutSession,
+  finalizeGuidedQrWorkoutSessionIfComplete,
 } from "@/lib/workout-session-lifecycle"
 import {
   parseWorkoutContextInput,
@@ -623,6 +624,14 @@ export async function POST(request: NextRequest) {
       totalReps,
       occurredAt: insertedQrSession.created_at,
     })
+
+    if (guidedParentSession && workoutContext.routineId) {
+      await finalizeGuidedQrWorkoutSessionIfComplete({
+        supabase,
+        workoutSessionId: parentSession.workoutSessionId,
+        completedAt: insertedQrSession.created_at,
+      })
+    }
 
     if (!guidedParentSession) {
       const { error: parentLinkError } = await supabase

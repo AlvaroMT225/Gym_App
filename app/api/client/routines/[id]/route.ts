@@ -1,6 +1,18 @@
 import { NextRequest, NextResponse } from "next/server"
 import { requireRoleFromRequest } from "@/lib/auth/guards"
+import {
+  mapRoutineWriteDto,
+  fetchAthleteOwnedRoutineForWrite,
+  isAthleteOwnedRoutine,
+  normalizeNullableText,
+  validateRoutineExerciseIds,
+} from "@/lib/client-routines-write"
 import { createClient } from "@/lib/supabase/server"
+import type {
+  RoutineExerciseInsert,
+  TablesUpdate,
+} from "@/lib/supabase/types/database"
+import { routinePatchBodySchema } from "@/lib/validations/athlete"
 import { ensureGuidedQrWorkoutSession } from "@/lib/workout-session-lifecycle"
 
 interface ExerciseRow {
@@ -27,6 +39,9 @@ interface RoutineRow {
   id: string
   name: string
   description: string | null
+  profile_id: string
+  created_by: string | null
+  is_template: boolean | null
   is_active: boolean
   days_per_week: number
   difficulty_level: number
@@ -54,6 +69,8 @@ interface RoutineDto {
   name: string
   description: string | null
   isActive: boolean
+  canEdit: boolean
+  canDelete: boolean
   daysPerWeek: number
   difficultyLevel: number
   updatedAt: string
@@ -103,6 +120,8 @@ function mapRoutineRow(routine: RoutineRow): RoutineDto {
     name: routine.name,
     description: routine.description,
     isActive: routine.is_active,
+    canEdit: false,
+    canDelete: false,
     daysPerWeek: routine.days_per_week,
     difficultyLevel: routine.difficulty_level,
     updatedAt: routine.updated_at,
@@ -128,6 +147,9 @@ export async function GET(
         id,
         name,
         description,
+        profile_id,
+        created_by,
+        is_template,
         is_active,
         days_per_week,
         difficulty_level,
@@ -163,8 +185,15 @@ export async function GET(
       return NextResponse.json({ error: "Rutina no encontrada" }, { status: 404 })
     }
 
+    const mappedRoutine = mapRoutineRow(routine as RoutineRow)
+    const athleteOwned = isAthleteOwnedRoutine(routine as RoutineRow, userId)
+
     return NextResponse.json({
-      routine: mapRoutineRow(routine as RoutineRow),
+      routine: {
+        ...mappedRoutine,
+        canEdit: athleteOwned,
+        canDelete: athleteOwned,
+      },
     })
   } catch (error) {
     console.error("GET /api/client/routines/[id] unexpected error:", error)
@@ -187,7 +216,13 @@ export async function POST(
     const [{ data: profile, error: profileError }, { data: routine, error: routineError }] =
       await Promise.all([
         supabase.from("profiles").select("gym_id").eq("id", userId).maybeSingle(),
-        supabase.from("routines").select("id").eq("id", routineId).eq("profile_id", userId).maybeSingle(),
+        supabase
+          .from("routines")
+          .select("id")
+          .eq("id", routineId)
+          .eq("profile_id", userId)
+          .eq("is_active", true)
+          .maybeSingle(),
       ])
 
     if (profileError) {
@@ -225,6 +260,206 @@ export async function POST(
     })
   } catch (error) {
     console.error("POST /api/client/routines/[id] unexpected error:", error)
+    return NextResponse.json({ error: "Error interno del servidor" }, { status: 500 })
+  }
+}
+
+export async function PATCH(
+  request: NextRequest,
+  { params }: { params: Promise<{ id: string }> }
+) {
+  const { id: routineId } = await params
+  const sessionOrResponse = await requireRoleFromRequest(request, ["USER"])
+  if (sessionOrResponse instanceof NextResponse) return sessionOrResponse
+
+  const body = await request.json().catch(() => null)
+  if (body === null) {
+    return NextResponse.json({ error: "JSON inválido" }, { status: 400 })
+  }
+
+  const parsedBody = routinePatchBodySchema.safeParse(body)
+  if (!parsedBody.success) {
+    return NextResponse.json(
+      {
+        error: "Datos de entrada inválidos",
+        details: parsedBody.error.flatten(),
+      },
+      { status: 400 }
+    )
+  }
+
+  try {
+    const supabase = await createClient(request)
+    const userId = sessionOrResponse.userId
+
+    const { data: existingRoutine, error: existingRoutineError } = await fetchAthleteOwnedRoutineForWrite(
+      supabase,
+      routineId,
+      userId
+    )
+
+    if (existingRoutineError) {
+      console.error("PATCH /api/client/routines/[id] fetch routine error:", existingRoutineError)
+      return NextResponse.json({ error: "Error al obtener rutina" }, { status: 500 })
+    }
+
+    if (!existingRoutine) {
+      return NextResponse.json({ error: "Rutina editable no encontrada" }, { status: 404 })
+    }
+
+    if (parsedBody.data.exercises) {
+      const exerciseValidation = await validateRoutineExerciseIds(
+        supabase,
+        parsedBody.data.exercises.map((exercise) => exercise.exercise_id)
+      )
+
+      if (exerciseValidation.error) {
+        console.error("PATCH /api/client/routines/[id] exercise validation error:", exerciseValidation.error)
+        return NextResponse.json({ error: "Error al validar ejercicios" }, { status: 500 })
+      }
+
+      if (!exerciseValidation.ok) {
+        return NextResponse.json(
+          {
+            error: "Uno o más ejercicios no existen o no están disponibles",
+            invalid_exercise_ids: exerciseValidation.missingIds,
+          },
+          { status: 400 }
+        )
+      }
+    }
+
+    const routineUpdate: TablesUpdate<"routines"> = {
+      updated_at: new Date().toISOString(),
+    }
+
+    if (parsedBody.data.name !== undefined) {
+      routineUpdate.name = parsedBody.data.name
+    }
+
+    if (Object.prototype.hasOwnProperty.call(parsedBody.data, "description")) {
+      routineUpdate.description = normalizeNullableText(parsedBody.data.description)
+    }
+
+    const { error: updateRoutineError } = await supabase
+      .from("routines")
+      .update(routineUpdate)
+      .eq("id", routineId)
+      .eq("profile_id", userId)
+      .eq("created_by", userId)
+      .eq("is_template", false)
+
+    if (updateRoutineError) {
+      console.error("PATCH /api/client/routines/[id] update routine error:", updateRoutineError)
+      return NextResponse.json({ error: "Error al actualizar rutina" }, { status: 500 })
+    }
+
+    if (parsedBody.data.exercises) {
+      const { error: deleteExercisesError } = await supabase
+        .from("routine_exercises")
+        .delete()
+        .eq("routine_id", routineId)
+
+      if (deleteExercisesError) {
+        console.error("PATCH /api/client/routines/[id] delete exercises error:", deleteExercisesError)
+        return NextResponse.json({ error: "Error al reemplazar ejercicios de la rutina" }, { status: 500 })
+      }
+
+      const routineExercises: RoutineExerciseInsert[] = parsedBody.data.exercises.map((exercise) => ({
+        routine_id: routineId,
+        exercise_id: exercise.exercise_id,
+        order_index: exercise.order_index,
+        sets_target: exercise.sets_target,
+        reps_target: exercise.reps_target,
+        rest_seconds: exercise.rest_seconds ?? null,
+        weight_target: exercise.weight_target ?? null,
+        notes: normalizeNullableText(exercise.notes),
+      }))
+
+      const { error: createExercisesError } = await supabase
+        .from("routine_exercises")
+        .insert(routineExercises)
+
+      if (createExercisesError) {
+        console.error("PATCH /api/client/routines/[id] create exercises error:", createExercisesError)
+        return NextResponse.json({ error: "Error al guardar ejercicios de la rutina" }, { status: 500 })
+      }
+    }
+
+    const { data: routine, error: routineError } = await fetchAthleteOwnedRoutineForWrite(
+      supabase,
+      routineId,
+      userId
+    )
+
+    if (routineError) {
+      console.error("PATCH /api/client/routines/[id] fetch updated routine error:", routineError)
+      return NextResponse.json({ error: "Error al obtener rutina actualizada" }, { status: 500 })
+    }
+
+    if (!routine) {
+      return NextResponse.json({ error: "Rutina actualizada no encontrada" }, { status: 500 })
+    }
+
+    return NextResponse.json({
+      routine: mapRoutineWriteDto(routine, userId),
+    })
+  } catch (error) {
+    console.error("PATCH /api/client/routines/[id] unexpected error:", error)
+    return NextResponse.json({ error: "Error interno del servidor" }, { status: 500 })
+  }
+}
+
+export async function DELETE(
+  request: NextRequest,
+  { params }: { params: Promise<{ id: string }> }
+) {
+  const { id: routineId } = await params
+  const sessionOrResponse = await requireRoleFromRequest(request, ["USER"])
+  if (sessionOrResponse instanceof NextResponse) return sessionOrResponse
+
+  try {
+    const supabase = await createClient(request)
+    const userId = sessionOrResponse.userId
+
+    const { data: existingRoutine, error: existingRoutineError } = await fetchAthleteOwnedRoutineForWrite(
+      supabase,
+      routineId,
+      userId
+    )
+
+    if (existingRoutineError) {
+      console.error("DELETE /api/client/routines/[id] fetch routine error:", existingRoutineError)
+      return NextResponse.json({ error: "Error al obtener rutina" }, { status: 500 })
+    }
+
+    if (!existingRoutine) {
+      return NextResponse.json({ error: "Rutina eliminable no encontrada" }, { status: 404 })
+    }
+
+    const { error: deleteRoutineError } = await supabase
+      .from("routines")
+      .update({
+        is_active: false,
+        updated_at: new Date().toISOString(),
+      })
+      .eq("id", routineId)
+      .eq("profile_id", userId)
+      .eq("created_by", userId)
+      .eq("is_template", false)
+
+    if (deleteRoutineError) {
+      console.error("DELETE /api/client/routines/[id] soft delete error:", deleteRoutineError)
+      return NextResponse.json({ error: "Error al eliminar rutina" }, { status: 500 })
+    }
+
+    return NextResponse.json({
+      success: true,
+      id: routineId,
+      is_active: false,
+    })
+  } catch (error) {
+    console.error("DELETE /api/client/routines/[id] unexpected error:", error)
     return NextResponse.json({ error: "Error interno del servidor" }, { status: 500 })
   }
 }
