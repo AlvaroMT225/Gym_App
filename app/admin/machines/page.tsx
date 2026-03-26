@@ -440,20 +440,22 @@ export default function MachinesPage() {
 
       drawHeader(1)
 
-      let col = 0
-      let row = 0
       let pageNum = 1
-      let cellsOnPage = 0
+      let totalCells = 0
 
       for (const machine of machines) {
         if (!machine.qrCode) continue
 
-        // New page when grid is full
-        if (cellsOnPage > 0 && col === 0 && row === 0) {
+        // New page when grid is full (cols × rows cells per page)
+        if (totalCells > 0 && totalCells % (cols * rows) === 0) {
           doc.addPage()
           pageNum++
           drawHeader(pageNum)
         }
+
+        const cellIndex = totalCells % (cols * rows)
+        const col = cellIndex % cols
+        const row = Math.floor(cellIndex / cols)
 
         const x = margin + col * cellW
         const y = margin + headerH + row * cellH
@@ -473,16 +475,16 @@ export default function MachinesPage() {
           doc.addImage(qrUrl, "PNG", x + (cellW - qrSize) / 2, y + 4, qrSize, qrSize)
         } catch { /* skip QR image on error */ }
 
-        // Machine name
+        // Machine name (truncated to prevent wrapping)
         const displayName = machine.name.length > 28 ? machine.name.substring(0, 26) + "..." : machine.name
         doc.setFontSize(9)
         doc.setFont("helvetica", "bold")
         doc.text(displayName, x + cellW / 2, y + qrSize + 10, { align: "center", maxWidth: cellW - 6 })
 
-        // QR code string
+        // QR code string (maxWidth prevents horizontal overflow for long UUIDs)
         doc.setFontSize(7)
         doc.setFont("courier", "normal")
-        doc.text(qrPayload, x + cellW / 2, y + qrSize + 17, { align: "center" })
+        doc.text(qrPayload, x + cellW / 2, y + qrSize + 17, { align: "center", maxWidth: cellW - 4 })
 
         // Location
         if (machine.location) {
@@ -491,17 +493,7 @@ export default function MachinesPage() {
           doc.text(machine.location, x + cellW / 2, y + qrSize + 23, { align: "center", maxWidth: cellW - 6 })
         }
 
-        col++
-        cellsOnPage++
-        if (col >= cols) {
-          col = 0
-          row++
-          if (row >= rows) {
-            row = 0
-            col = 0
-            cellsOnPage = 0
-          }
-        }
+        totalCells++
       }
 
       const dateForFile = new Date().toISOString().split("T")[0]
