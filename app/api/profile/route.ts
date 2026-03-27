@@ -18,7 +18,7 @@ export async function GET(request: NextRequest) {
   if (sessionOrResponse instanceof NextResponse) return sessionOrResponse
 
   try {
-    const supabase = await createClient()
+    const supabase = await createClient(request)
     const { data, error } = await supabase
       .from("profiles")
       .select("id, first_name, last_name, email, phone, bio, avatar_url, settings, nickname, birth_date, gender, weight_kg, target_weight_kg")
@@ -71,7 +71,7 @@ export async function PATCH(request: NextRequest) {
       return NextResponse.json({ error: "No hay campos para actualizar" }, { status: 400 })
     }
 
-    const supabase = await createClient()
+    const supabase = await createClient(request)
     const userId = sessionOrResponse.userId
 
     // Check current weight_kg to decide whether to seed body_weight_logs
@@ -91,19 +91,30 @@ export async function PATCH(request: NextRequest) {
       currentWeightKg = (currentProfile as { weight_kg: number | null } | null)?.weight_kg ?? null
     }
 
-    const { data, error } = await supabase
+    // UPDATE without chained SELECT to avoid PGRST116 from RLS on RETURNING
+    const { error: updateError } = await supabase
       .from("profiles")
       .update(updates)
       .eq("id", userId)
-      .select("id, first_name, last_name, email, phone, bio, avatar_url, nickname, birth_date, gender, weight_kg, target_weight_kg")
-      .single()
 
-    if (error) {
-      if (error.code === "23505") {
+    if (updateError) {
+      if (updateError.code === "23505") {
         return NextResponse.json({ error: "Email ya en uso" }, { status: 409 })
       }
-      console.error("PATCH /api/profile error:", error)
+      console.error("PATCH /api/profile update error:", updateError)
       return NextResponse.json({ error: "Error al actualizar perfil" }, { status: 500 })
+    }
+
+    // Separate SELECT after UPDATE — avoids implicit RETURNING RLS conflict
+    const { data, error: selectError } = await supabase
+      .from("profiles")
+      .select("id, first_name, last_name, email, phone, bio, avatar_url, nickname, birth_date, gender, weight_kg, target_weight_kg")
+      .eq("id", userId)
+      .single()
+
+    if (selectError) {
+      console.error("PATCH /api/profile select error:", selectError)
+      return NextResponse.json({ error: "Error al leer perfil actualizado" }, { status: 500 })
     }
 
     // Seed body_weight_logs only on first weight entry
