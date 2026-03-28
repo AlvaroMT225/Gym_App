@@ -96,7 +96,9 @@ export async function GET(request: NextRequest) {
         ? Math.round(validDurations.reduce((sum, d) => sum + d, 0) / validDurations.length)
         : 0
 
-    // Compute top 5 muscle groups for the period
+    // Compute muscle session counts for the period — exclude catch-all tags
+    const MUSCLE_GROUPS = ["chest", "back", "shoulders", "biceps", "triceps", "arms", "legs", "glutes", "core"]
+    const EXCLUDED = new Set(["full_body", "cardio"])
     const muscleCount = new Map<string, number>()
     for (const row of (qrResult.data ?? []) as QrWithMachine[]) {
       const machine = Array.isArray(row.machines) ? row.machines[0] : row.machines
@@ -104,15 +106,15 @@ export async function GET(request: NextRequest) {
       const groups = (machine as Record<string, unknown>).muscle_groups
       if (!Array.isArray(groups)) continue
       for (const g of groups) {
-        if (typeof g === "string" && g !== "full_body") {
+        if (typeof g === "string" && !EXCLUDED.has(g)) {
           muscleCount.set(g, (muscleCount.get(g) ?? 0) + 1)
         }
       }
     }
-    const topMuscleGroups = [...muscleCount.entries()]
-      .sort((a, b) => b[1] - a[1])
-      .slice(0, 5)
-      .map(([name, count]) => ({ name, count }))
+    // All 9 fixed groups always present, 0-session muscles fill the bottom
+    const muscleRanking = MUSCLE_GROUPS
+      .map((name) => ({ name, count: muscleCount.get(name) ?? 0 }))
+      .sort((a, b) => b.count - a.count || a.name.localeCompare(b.name))
 
     const stats = statsResult.data as UserStatsRow | null
     const rank = rankResult.data as RankingRow | null
@@ -124,7 +126,7 @@ export async function GET(request: NextRequest) {
       rank_position: rank?.rank_position ?? null,
       current_streak: stats?.current_streak ?? 0,
       total_volume_kg: stats?.total_volume_kg ?? 0,
-      top_muscle_groups: topMuscleGroups,
+      muscle_ranking: muscleRanking,
     })
   } catch (error) {
     console.error("GET /api/client/progress/overview unexpected error:", error)
