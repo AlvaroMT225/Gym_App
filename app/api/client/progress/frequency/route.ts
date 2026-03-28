@@ -45,7 +45,7 @@ function buildWeekSeries(sessions: { started_at: string }[]): FreqPoint[] {
     const dateStr = toDateStr(d)
     series.push({ label: DAY_LABELS[d.getDay()], date: dateStr, count: countByDate.get(dateStr) ?? 0 })
   }
-  return series
+  return series.sort((a, b) => a.date.localeCompare(b.date))
 }
 
 function getMondayOf(date: Date): Date {
@@ -89,7 +89,9 @@ function buildMonthSeries(sessions: { started_at: string }[]): FreqPoint[] {
     countByWeek.set(key, (countByWeek.get(key) ?? 0) + 1)
   }
 
-  return weekSlots.map((slot) => ({ label: slot.label, date: slot.date, count: countByWeek.get(slot.key) ?? 0 }))
+  return weekSlots
+    .map((slot) => ({ label: slot.label, date: slot.date, count: countByWeek.get(slot.key) ?? 0 }))
+    .sort((a, b) => a.date.localeCompare(b.date))
 }
 
 function buildYearSeries(sessions: { started_at: string }[]): FreqPoint[] {
@@ -105,7 +107,7 @@ function buildYearSeries(sessions: { started_at: string }[]): FreqPoint[] {
     const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`
     series.push({ label: MONTH_LABELS[d.getMonth()], date: key + "-01", count: countByMonth.get(key) ?? 0 })
   }
-  return series
+  return series.sort((a, b) => a.date.localeCompare(b.date))
 }
 
 function buildAllSeries(sessions: { started_at: string }[]): FreqPoint[] {
@@ -122,6 +124,7 @@ function buildAllSeries(sessions: { started_at: string }[]): FreqPoint[] {
       const year = key.slice(2, 4)
       return { label: `${MONTH_LABELS[monthIndex]} ${year}`, date: key + "-01", count: countByMonth.get(key) ?? 0 }
     })
+    .sort((a, b) => a.date.localeCompare(b.date))
 }
 
 export async function GET(request: NextRequest) {

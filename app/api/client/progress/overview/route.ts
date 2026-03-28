@@ -104,7 +104,7 @@ export async function GET(request: NextRequest) {
       const groups = (machine as Record<string, unknown>).muscle_groups
       if (!Array.isArray(groups)) continue
       for (const g of groups) {
-        if (typeof g === "string") {
+        if (typeof g === "string" && g !== "full_body") {
           muscleCount.set(g, (muscleCount.get(g) ?? 0) + 1)
         }
       }
