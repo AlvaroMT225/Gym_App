@@ -69,6 +69,7 @@ interface RecentQrSessionNoteRow {
   id: string
   created_at: string
   notes: string | null
+  total_volume: number | null
 }
 
 interface FactorConstanciaResult {
@@ -89,6 +90,7 @@ const FC2_WEEK_CAP = 4
 const FC2_INCREMENT = 0.05
 const FC2_LOOKBACK_WEEKS = 16
 const DUPLICATE_WINDOW_MS = 5 * 60 * 1000
+const QR_EXERCISE_HISTORY_BATCH_SIZE = 50
 
 function toNullableRank(value: unknown): number | null {
   if (typeof value === "number" && Number.isFinite(value) && value > 0) {
@@ -292,7 +294,6 @@ async function calculateStrictFactorConstancia(params: {
     .eq("profile_id", athleteId)
     .eq("status", "completed")
     .eq("competitive", true)
-    .gte("started_at", `${lookbackStartWeekKey}T00:00:00.000Z`)
 
   if (error) {
     throw error
@@ -309,6 +310,10 @@ async function calculateStrictFactorConstancia(params: {
 
     const sessionDateKey = formatDateKeyInTimeZone(sessionDateIso, APP_TIME_ZONE)
     if (!sessionDateKey) {
+      continue
+    }
+
+    if (sessionDateKey < lookbackStartWeekKey) {
       continue
     }
 
@@ -331,6 +336,63 @@ async function calculateStrictFactorConstancia(params: {
   }
 }
 
+function getResolvedExerciseIdFromNotes(notes: string | null): string | null {
+  return parseSessionMetadataNotes(notes).exerciseId
+}
+
+async function getRecentQrSessionsForResolvedExercise(params: {
+  supabase: SupabaseClient
+  athleteId: string
+  exerciseId: string
+  limit: number
+  machineId?: string
+  createdAfterIso?: string
+}): Promise<RecentQrSessionNoteRow[]> {
+  const { supabase, athleteId, exerciseId, limit, machineId, createdAfterIso } = params
+  const matches: RecentQrSessionNoteRow[] = []
+  let from = 0
+
+  while (matches.length < limit) {
+    let query = supabase
+      .from("qr_sessions")
+      .select("id, created_at, notes, total_volume")
+      .eq("athlete_id", athleteId)
+      .order("created_at", { ascending: false })
+      .range(from, from + QR_EXERCISE_HISTORY_BATCH_SIZE - 1)
+
+    if (machineId) {
+      query = query.eq("machine_id", machineId)
+    }
+
+    if (createdAfterIso) {
+      query = query.gte("created_at", createdAfterIso)
+    }
+
+    const { data, error } = await query
+    if (error) {
+      throw error
+    }
+
+    const rows = (data ?? []) as RecentQrSessionNoteRow[]
+    for (const row of rows) {
+      if (getResolvedExerciseIdFromNotes(row.notes) === exerciseId) {
+        matches.push(row)
+        if (matches.length >= limit) {
+          break
+        }
+      }
+    }
+
+    if (rows.length < QR_EXERCISE_HISTORY_BATCH_SIZE) {
+      break
+    }
+
+    from += QR_EXERCISE_HISTORY_BATCH_SIZE
+  }
+
+  return matches
+}
+
 async function ensureNoDuplicateExerciseSession(params: {
   supabase: SupabaseClient
   athleteId: string
@@ -340,23 +402,16 @@ async function ensureNoDuplicateExerciseSession(params: {
   const { supabase, athleteId, exerciseId, referenceDateIso } = params
   const recentWindowStartIso = new Date(new Date(referenceDateIso).getTime() - DUPLICATE_WINDOW_MS).toISOString()
 
-  const { data, error } = await supabase
-    .from("qr_sessions")
-    .select("id, created_at, notes")
-    .eq("athlete_id", athleteId)
-    .gte("created_at", recentWindowStartIso)
-    .order("created_at", { ascending: false })
-    .limit(12)
+  const recentMatches = await getRecentQrSessionsForResolvedExercise({
+    supabase,
+    athleteId,
+    exerciseId,
+    createdAfterIso: recentWindowStartIso,
+    limit: 1,
+  })
 
-  if (error) {
-    throw error
-  }
-
-  for (const row of (data ?? []) as RecentQrSessionNoteRow[]) {
-    const metadata = parseSessionMetadataNotes(row.notes)
-    if (metadata.exerciseId === exerciseId) {
-      throw new Error("Ya registraste este ejercicio hace menos de 5 minutos.")
-    }
+  if (recentMatches.length > 0) {
+    throw new Error("Ya registraste este ejercicio hace menos de 5 minutos.")
   }
 }
 
@@ -711,17 +766,13 @@ export async function POST(request: NextRequest) {
     const primaryMuscleGroup =
       typeof machine.primary_muscle_group === "string" ? machine.primary_muscle_group : null
 
-    const { data: recentSessions, error: sessionsError } = await supabase
-      .from("qr_sessions")
-      .select("total_volume")
-      .eq("athlete_id", athleteId)
-      .eq("machine_id", machine_id)
-      .order("created_at", { ascending: false })
-      .limit(4)
-
-    if (sessionsError) {
-      throw sessionsError
-    }
+    const recentSessions = await getRecentQrSessionsForResolvedExercise({
+      supabase,
+      athleteId,
+      machineId: machine_id,
+      exerciseId: workoutContext.exerciseId,
+      limit: 4,
+    })
 
     let factorProgreso = 1.0
     if (recentSessions && recentSessions.length === 4) {
