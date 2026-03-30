@@ -8,6 +8,7 @@ import {
 } from "@/lib/workout-session-lifecycle"
 import {
   parseWorkoutContextInput,
+  parseSessionMetadataNotes,
   resolveWorkoutContext,
   serializeSessionMetadataNotes,
 } from "@/lib/workout-flow-context"
@@ -59,6 +60,22 @@ interface XpSnapshot {
   lowerXp: number
 }
 
+interface CompetitiveWorkoutSessionDateRow {
+  started_at: string | null
+  ended_at: string | null
+}
+
+interface RecentQrSessionNoteRow {
+  id: string
+  created_at: string
+  notes: string | null
+}
+
+interface FactorConstanciaResult {
+  consecutiveActiveWeeks: number
+  factorConstancia: number
+}
+
 type SupabaseClient = Awaited<ReturnType<typeof createClient>>
 type RankingRegion = "upper" | "lower"
 
@@ -66,6 +83,12 @@ const HIGH_FP_THRESHOLD = 1.2
 const MIN_SESSION_SETS = 2
 const LB_TO_KG = 0.45359237
 const CANONICAL_KG_DECIMALS = 4
+const APP_TIME_ZONE = "America/Guayaquil"
+const ACTIVE_WEEK_MIN_COMPLETED_SESSIONS = 3
+const FC2_WEEK_CAP = 4
+const FC2_INCREMENT = 0.05
+const FC2_LOOKBACK_WEEKS = 16
+const DUPLICATE_WINDOW_MS = 5 * 60 * 1000
 
 function toNullableRank(value: unknown): number | null {
   if (typeof value === "number" && Number.isFinite(value) && value > 0) {
@@ -216,6 +239,125 @@ function roundToDecimals(value: number, decimals: number): number {
 
   const factor = 10 ** decimals
   return Math.round(value * factor) / factor
+}
+
+function formatDateKeyInTimeZone(dateIso: string, timeZone: string): string | null {
+  const date = new Date(dateIso)
+  if (!Number.isFinite(date.getTime())) {
+    return null
+  }
+
+  return new Intl.DateTimeFormat("en-CA", {
+    timeZone,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).format(date)
+}
+
+function getMondayWeekKey(dateKey: string): string {
+  const date = new Date(`${dateKey}T00:00:00Z`)
+  const day = date.getUTCDay()
+  const diff = (day + 6) % 7
+  date.setUTCDate(date.getUTCDate() - diff)
+  return date.toISOString().slice(0, 10)
+}
+
+function subtractWeeks(weekKey: string, weeks: number): string {
+  const date = new Date(`${weekKey}T00:00:00Z`)
+  date.setUTCDate(date.getUTCDate() - weeks * 7)
+  return date.toISOString().slice(0, 10)
+}
+
+async function calculateStrictFactorConstancia(params: {
+  supabase: SupabaseClient
+  athleteId: string
+  referenceDateIso: string
+}): Promise<FactorConstanciaResult> {
+  const { supabase, athleteId, referenceDateIso } = params
+  const referenceDateKey = formatDateKeyInTimeZone(referenceDateIso, APP_TIME_ZONE)
+  if (!referenceDateKey) {
+    return {
+      consecutiveActiveWeeks: 0,
+      factorConstancia: 1,
+    }
+  }
+
+  const currentWeekKey = getMondayWeekKey(referenceDateKey)
+  const lookbackStartWeekKey = subtractWeeks(currentWeekKey, FC2_LOOKBACK_WEEKS - 1)
+
+  const { data, error } = await supabase
+    .from("workout_sessions")
+    .select("started_at, ended_at")
+    .eq("profile_id", athleteId)
+    .eq("status", "completed")
+    .eq("competitive", true)
+    .gte("started_at", `${lookbackStartWeekKey}T00:00:00.000Z`)
+
+  if (error) {
+    throw error
+  }
+
+  const sessions = (data ?? []) as CompetitiveWorkoutSessionDateRow[]
+  const countsByWeek = new Map<string, number>()
+
+  for (const session of sessions) {
+    const sessionDateIso = session.ended_at ?? session.started_at
+    if (!sessionDateIso) {
+      continue
+    }
+
+    const sessionDateKey = formatDateKeyInTimeZone(sessionDateIso, APP_TIME_ZONE)
+    if (!sessionDateKey) {
+      continue
+    }
+
+    const weekKey = getMondayWeekKey(sessionDateKey)
+    countsByWeek.set(weekKey, (countsByWeek.get(weekKey) ?? 0) + 1)
+  }
+
+  let consecutiveActiveWeeks = 0
+  for (let offset = 0; offset < FC2_LOOKBACK_WEEKS; offset += 1) {
+    const weekKey = subtractWeeks(currentWeekKey, offset)
+    if ((countsByWeek.get(weekKey) ?? 0) < ACTIVE_WEEK_MIN_COMPLETED_SESSIONS) {
+      break
+    }
+    consecutiveActiveWeeks += 1
+  }
+
+  return {
+    consecutiveActiveWeeks,
+    factorConstancia: roundToDecimals(1 + Math.min(consecutiveActiveWeeks, FC2_WEEK_CAP) * FC2_INCREMENT, 2),
+  }
+}
+
+async function ensureNoDuplicateExerciseSession(params: {
+  supabase: SupabaseClient
+  athleteId: string
+  exerciseId: string
+  referenceDateIso: string
+}): Promise<void> {
+  const { supabase, athleteId, exerciseId, referenceDateIso } = params
+  const recentWindowStartIso = new Date(new Date(referenceDateIso).getTime() - DUPLICATE_WINDOW_MS).toISOString()
+
+  const { data, error } = await supabase
+    .from("qr_sessions")
+    .select("id, created_at, notes")
+    .eq("athlete_id", athleteId)
+    .gte("created_at", recentWindowStartIso)
+    .order("created_at", { ascending: false })
+    .limit(12)
+
+  if (error) {
+    throw error
+  }
+
+  for (const row of (data ?? []) as RecentQrSessionNoteRow[]) {
+    const metadata = parseSessionMetadataNotes(row.notes)
+    if (metadata.exerciseId === exerciseId) {
+      throw new Error("Ya registraste este ejercicio hace menos de 5 minutos.")
+    }
+  }
 }
 
 function toWeightUnit(value: unknown): WeightUnit | null {
@@ -550,6 +692,21 @@ export async function POST(request: NextRequest) {
       },
     })
 
+    if (!workoutContext.exerciseId) {
+      return NextResponse.json(
+        { error: "No se pudo resolver el ejercicio de la sesión QR." },
+        { status: 400 }
+      )
+    }
+
+    const requestTimestamp = new Date().toISOString()
+    await ensureNoDuplicateExerciseSession({
+      supabase,
+      athleteId,
+      exerciseId: workoutContext.exerciseId,
+      referenceDateIso: requestTimestamp,
+    })
+
     const region = typeof machine.region === "string" ? machine.region : ""
     const primaryMuscleGroup =
       typeof machine.primary_muscle_group === "string" ? machine.primary_muscle_group : null
@@ -578,7 +735,6 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    const sessionXp = totalVolume * factorProgreso * 0.01
     const guidedParentSession = workoutContext.routineId
       ? await ensureGuidedQrWorkoutSession({
           supabase,
@@ -598,7 +754,9 @@ export async function POST(request: NextRequest) {
         notes: serializeSessionMetadataNotes(notes, workoutContext),
         total_volume: totalVolume,
         factor_progreso: factorProgreso,
-        session_xp: sessionXp,
+        factor_constancia: 1,
+        consecutive_active_weeks: 0,
+        session_xp: 0,
         region,
         primary_muscle_group: primaryMuscleGroup,
         workout_session_id: guidedParentSession?.workoutSessionId ?? null,
@@ -644,6 +802,29 @@ export async function POST(request: NextRequest) {
       }
     }
 
+    const { consecutiveActiveWeeks, factorConstancia } = await calculateStrictFactorConstancia({
+      supabase,
+      athleteId,
+      referenceDateIso: insertedQrSession.created_at,
+    })
+    const sessionXp = roundToDecimals(
+      totalVolume * factorProgreso * factorConstancia * 0.01,
+      CANONICAL_KG_DECIMALS
+    )
+
+    const { error: updateQrSessionMetricsError } = await supabase
+      .from("qr_sessions")
+      .update({
+        factor_constancia: factorConstancia,
+        consecutive_active_weeks: consecutiveActiveWeeks,
+        session_xp: sessionXp,
+      })
+      .eq("id", insertedQrSession.id)
+
+    if (updateQrSessionMetricsError) {
+      throw updateQrSessionMetricsError
+    }
+
     const { data: currentXp, error: currentXpError } = await supabase
       .from("athlete_xp_totals")
       .select("total_xp, xp_by_region, xp_by_group, sessions_with_high_fp, consecutive_weeks")
@@ -653,7 +834,7 @@ export async function POST(request: NextRequest) {
     let xpSnapshot: XpSnapshot = {
       totalXp: sessionXp,
       sessionsWithHighFp: factorProgreso >= HIGH_FP_THRESHOLD ? 1 : 0,
-      consecutiveWeeks: 0,
+      consecutiveWeeks: consecutiveActiveWeeks,
       upperXp: 0,
       lowerXp: 0,
     }
@@ -688,6 +869,7 @@ export async function POST(request: NextRequest) {
           xp_by_region: newXpByRegion,
           xp_by_group: newXpByGroup,
           sessions_with_high_fp: sessionsWithHighFp,
+          consecutive_weeks: consecutiveActiveWeeks,
           updated_at: new Date().toISOString(),
         })
         .eq("athlete_id", athleteId)
@@ -700,6 +882,7 @@ export async function POST(request: NextRequest) {
         ...buildSnapshotFromTotals(currentRow),
         totalXp: newTotalXp,
         sessionsWithHighFp: sessionsWithHighFp,
+        consecutiveWeeks: consecutiveActiveWeeks,
         upperXp: toNonNegativeNumber(newXpByRegion.upper),
         lowerXp: toNonNegativeNumber(newXpByRegion.lower),
       }
@@ -722,7 +905,7 @@ export async function POST(request: NextRequest) {
         xp_by_region: initialXpByRegion,
         xp_by_group: initialXpByGroup,
         sessions_with_high_fp: sessionsWithHighFp,
-        consecutive_weeks: 0,
+        consecutive_weeks: consecutiveActiveWeeks,
         updated_at: new Date().toISOString(),
       })
 
@@ -733,7 +916,7 @@ export async function POST(request: NextRequest) {
       xpSnapshot = {
         totalXp: sessionXp,
         sessionsWithHighFp,
-        consecutiveWeeks: 0,
+        consecutiveWeeks: consecutiveActiveWeeks,
         upperXp: toNonNegativeNumber(initialXpByRegion.upper),
         lowerXp: toNonNegativeNumber(initialXpByRegion.lower),
       }
@@ -766,6 +949,8 @@ export async function POST(request: NextRequest) {
       success: true,
       session_xp: sessionXp,
       factor_progreso: factorProgreso,
+      factor_constancia: factorConstancia,
+      consecutive_active_weeks: consecutiveActiveWeeks,
       total_volume: totalVolume,
       workout_session_id: parentSession.workoutSessionId,
       rankings_recalculated: rankingsRecalculated,
@@ -776,7 +961,8 @@ export async function POST(request: NextRequest) {
   } catch (error: unknown) {
     console.error("Error in /api/client/qr-sessions:", error)
     const message = error instanceof Error ? error.message : "An unexpected error occurred"
-    return NextResponse.json({ error: message }, { status: 500 })
+    const status = message === "Ya registraste este ejercicio hace menos de 5 minutos." ? 409 : 500
+    return NextResponse.json({ error: message }, { status })
   }
 }
 
