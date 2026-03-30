@@ -6,9 +6,13 @@ type RankingRow = {
   rank_position: unknown
 }
 
-type AthleteXpTotalsRow = {
-  total_xp: number | null
-  xp_by_region: unknown
+type GlobalRankingScoreRow = {
+  global_score: number | null
+}
+
+type RegionalRankingScoreRow = {
+  region: string
+  final_score: number | null
 }
 
 type QrSessionMetricRow = {
@@ -176,27 +180,46 @@ async function getGlobalRankingPosition(athleteId: string, gymId: string): Promi
 
 export async function getCompetitiveXpSummary(
   supabase: SupabaseClient,
-  athleteId: string
+  athleteId: string,
+  gymId: string
 ): Promise<CompetitiveXpSummary> {
-  const { data, error } = await supabase
-    .from("athlete_xp_totals")
-    .select("total_xp, xp_by_region")
-    .eq("athlete_id", athleteId)
-    .maybeSingle()
+  const [
+    { data: globalData, error: globalError },
+    { data: regionalData, error: regionalError },
+  ] = await Promise.all([
+    supabase
+      .from("global_rankings")
+      .select("global_score")
+      .eq("athlete_id", athleteId)
+      .eq("gym_id", gymId)
+      .maybeSingle(),
+    supabase
+      .from("regional_rankings")
+      .select("region, final_score")
+      .eq("athlete_id", athleteId)
+      .eq("gym_id", gymId)
+      .in("region", ["upper", "lower"]),
+  ])
 
-  if (error) {
-    throw error
+  if (globalError) {
+    throw globalError
   }
 
-  const row = (data ?? null) as AthleteXpTotalsRow | null
-  const region = readNumberMap(row?.xp_by_region)
+  if (regionalError) {
+    throw regionalError
+  }
+
+  const globalRow = (globalData ?? null) as GlobalRankingScoreRow | null
+  const regionalRows = (regionalData ?? []) as RegionalRankingScoreRow[]
+  const upperRow = regionalRows.find((r) => r.region === "upper") ?? null
+  const lowerRow = regionalRows.find((r) => r.region === "lower") ?? null
 
   return {
     athlete_xp_totals: {
-      total_xp: toNonNegativeNumber(row?.total_xp),
+      total_xp: toNonNegativeNumber(globalRow?.global_score),
       xp_by_region: {
-        upper: toNonNegativeNumber(region.upper),
-        lower: toNonNegativeNumber(region.lower),
+        upper: toNonNegativeNumber(upperRow?.final_score),
+        lower: toNonNegativeNumber(lowerRow?.final_score),
       },
     },
   }
