@@ -810,6 +810,7 @@ export async function POST(request: NextRequest) {
         session_xp: 0,
         region,
         primary_muscle_group: primaryMuscleGroup,
+        exercise_id: workoutContext.exerciseId ?? null,
         workout_session_id: guidedParentSession?.workoutSessionId ?? null,
       })
       .select("id, created_at")
