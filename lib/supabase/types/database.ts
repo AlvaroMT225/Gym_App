@@ -840,10 +840,11 @@ export type Database = {
           created_at: string | null
           difficulty_level: number | null
           duration_minutes: number | null
+          exercise_id: string
           gif_url: string | null
           id: string
           is_active: boolean | null
-          machine_id: string
+          machine_id: string | null
           order_index: number | null
           steps: Json | null
           title: string
@@ -854,10 +855,11 @@ export type Database = {
           created_at?: string | null
           difficulty_level?: number | null
           duration_minutes?: number | null
+          exercise_id: string
           gif_url?: string | null
           id?: string
           is_active?: boolean | null
-          machine_id: string
+          machine_id?: string | null
           order_index?: number | null
           steps?: Json | null
           title: string
@@ -868,16 +870,24 @@ export type Database = {
           created_at?: string | null
           difficulty_level?: number | null
           duration_minutes?: number | null
+          exercise_id?: string
           gif_url?: string | null
           id?: string
           is_active?: boolean | null
-          machine_id?: string
+          machine_id?: string | null
           order_index?: number | null
           steps?: Json | null
           title?: string
           video_url?: string | null
         }
         Relationships: [
+          {
+            foreignKeyName: "machine_tutorials_exercise_id_fkey"
+            columns: ["exercise_id"]
+            isOneToOne: false
+            referencedRelation: "exercises"
+            referencedColumns: ["id"]
+          },
           {
             foreignKeyName: "machine_tutorials_machine_id_fkey"
             columns: ["machine_id"]

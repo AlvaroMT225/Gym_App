@@ -6,16 +6,21 @@ interface ProfileRow {
   gym_id: string | null
 }
 
-interface MachineRow {
+interface ExerciseRow {
   id: string
-  gym_id: string
   name: string
   muscle_groups: string[] | null
 }
 
+interface MachineRow {
+  id: string
+  name: string
+}
+
 interface TutorialRow {
   id: string
-  machine_id: string
+  exercise_id: string
+  machine_id: string | null
   title: string
   steps: unknown
   content: unknown
@@ -97,9 +102,9 @@ function readArrayFromContent(
 
 export async function GET(
   request: NextRequest,
-  { params }: { params: Promise<{ machineId: string }> }
+  { params }: { params: Promise<{ id: string }> }
 ) {
-  const { machineId } = await params
+  const { id } = await params
   const sessionOrResponse = await requireRoleFromRequest(request, ["USER"])
   if (sessionOrResponse instanceof NextResponse) return sessionOrResponse
 
@@ -114,7 +119,7 @@ export async function GET(
       .maybeSingle()
 
     if (profileError) {
-      console.error("GET /api/client/tutorials/[machineId] profile query error:", profileError)
+      console.error("GET /api/client/tutorials/[id] profile query error:", profileError)
       return NextResponse.json({ error: "Error al obtener perfil" }, { status: 500 })
     }
 
@@ -123,89 +128,128 @@ export async function GET(
       return NextResponse.json({ error: "Perfil no encontrado" }, { status: 404 })
     }
 
-    const { data: machine, error: machineError } = await supabase
-      .from("machines")
-      .select("id, gym_id, name, muscle_groups")
-      .eq("id", machineId)
-      .maybeSingle()
-
-    if (machineError) {
-      console.error("GET /api/client/tutorials/[machineId] machine query error:", machineError)
-      return NextResponse.json({ error: "Error al obtener máquina" }, { status: 500 })
-    }
-
-    if (!machine) {
-      return NextResponse.json({ error: "Máquina no encontrada" }, { status: 404 })
-    }
-
-    const machineRow = machine as MachineRow
-    if (machineRow.gym_id !== gymId) {
-      return NextResponse.json({ error: "Acceso denegado" }, { status: 403 })
-    }
-
     const { data: tutorial, error: tutorialError } = await supabase
       .from("machine_tutorials")
-      .select("id, machine_id, title, steps, content, gif_url, video_url, difficulty_level, duration_minutes")
-      .eq("machine_id", machineId)
+      .select(
+        "id, exercise_id, machine_id, title, steps, content, gif_url, video_url, difficulty_level, duration_minutes"
+      )
+      .eq("id", id)
       .eq("is_active", true)
-      .order("order_index", { ascending: true })
-      .limit(1)
       .maybeSingle()
 
     if (tutorialError) {
-      console.error("GET /api/client/tutorials/[machineId] tutorial query error:", tutorialError)
+      console.error("GET /api/client/tutorials/[id] tutorial query error:", tutorialError)
       return NextResponse.json({ error: "Error al obtener tutorial" }, { status: 500 })
     }
 
     if (!tutorial) {
+      const { data: legacyMachine, error: legacyMachineError } = await supabase
+        .from("machines")
+        .select("id")
+        .eq("id", id)
+        .eq("gym_id", gymId)
+        .maybeSingle()
+
+      if (legacyMachineError) {
+        console.error(
+          "GET /api/client/tutorials/[id] legacy machine fallback query error:",
+          legacyMachineError
+        )
+        return NextResponse.json({ error: "Error al obtener tutorial" }, { status: 500 })
+      }
+
+      if (legacyMachine) {
+        return NextResponse.json(
+          {
+            error: "La ruta por machine_id fue deprecada",
+            deprecated: true,
+            use_list_filter: `/api/client/tutorials?machine_id=${encodeURIComponent(id)}`,
+          },
+          { status: 410 }
+        )
+      }
+
       return NextResponse.json({ error: "Tutorial no encontrado" }, { status: 404 })
     }
 
     const tutorialRow = tutorial as TutorialRow
 
-    const { data: progress, error: progressError } = await supabase
-      .from("user_tutorial_progress")
-      .select("completed, progress_percent, completed_at")
-      .eq("profile_id", userId)
-      .eq("tutorial_id", tutorialRow.id)
-      .maybeSingle()
+    const [{ data: exercise, error: exerciseError }, { data: progress, error: progressError }] =
+      await Promise.all([
+        supabase
+          .from("exercises")
+          .select("id, name, muscle_groups")
+          .eq("id", tutorialRow.exercise_id)
+          .or(`gym_id.eq.${gymId},is_public.eq.true`)
+          .maybeSingle(),
+        supabase
+          .from("user_tutorial_progress")
+          .select("completed, progress_percent, completed_at")
+          .eq("profile_id", userId)
+          .eq("tutorial_id", tutorialRow.id)
+          .maybeSingle(),
+      ])
+
+    if (exerciseError) {
+      console.error("GET /api/client/tutorials/[id] exercise query error:", exerciseError)
+      return NextResponse.json({ error: "Error al obtener ejercicio" }, { status: 500 })
+    }
+
+    if (!exercise) {
+      return NextResponse.json({ error: "Tutorial no disponible" }, { status: 404 })
+    }
 
     if (progressError) {
-      console.error("GET /api/client/tutorials/[machineId] progress query error:", progressError)
+      console.error("GET /api/client/tutorials/[id] progress query error:", progressError)
       return NextResponse.json({ error: "Error al obtener progreso de tutorial" }, { status: 500 })
     }
 
+    let machineRow: MachineRow | null = null
+    if (tutorialRow.machine_id) {
+      const { data: machine, error: machineError } = await supabase
+        .from("machines")
+        .select("id, name")
+        .eq("id", tutorialRow.machine_id)
+        .eq("gym_id", gymId)
+        .maybeSingle()
+
+      if (machineError) {
+        console.error("GET /api/client/tutorials/[id] machine query error:", machineError)
+        return NextResponse.json({ error: "Error al obtener máquina" }, { status: 500 })
+      }
+
+      machineRow = (machine ?? null) as MachineRow | null
+    }
+
+    const exerciseRow = exercise as ExerciseRow
     const progressRow = (progress ?? null) as TutorialProgressRow | null
     const progressPercent = Number(progressRow?.progress_percent ?? 0)
-    const completed = Boolean(progressRow?.completed) || progressPercent >= 100
-
+    const isCompleted = Boolean(progressRow?.completed) || progressPercent >= 100
     const contentJson = parseJsonObject(tutorialRow.content)
-    const safetyTips = readArrayFromContent(contentJson, ["safetyTips", "safety_tips", "safety", "tips"])
-    const commonErrors = readArrayFromContent(contentJson, ["commonErrors", "common_errors", "errors"])
-    const steps = parseSteps(tutorialRow.steps)
 
     return NextResponse.json({
       item: {
         id: tutorialRow.id,
-        machineId: machineRow.id,
-        machineName: machineRow.name,
-        muscles: machineRow.muscle_groups ?? [],
-        tutorialId: tutorialRow.id,
+        exercise_id: tutorialRow.exercise_id,
+        exercise_name: exerciseRow.name,
+        machine_id: tutorialRow.machine_id,
+        machine_name: machineRow?.name ?? null,
+        muscle_groups: exerciseRow.muscle_groups ?? [],
         title: tutorialRow.title,
-        steps,
-        safetyTips,
-        commonErrors,
-        gifUrl: tutorialRow.gif_url ?? null,
-        videoUrl: tutorialRow.video_url,
-        difficultyLevel: tutorialRow.difficulty_level ?? null,
-        durationMinutes: tutorialRow.duration_minutes ?? null,
-        completed,
-        progressPercent,
-        completedAt: progressRow?.completed_at ?? null,
+        steps: parseSteps(tutorialRow.steps),
+        safety_tips: readArrayFromContent(contentJson, ["safetyTips", "safety_tips", "safety", "tips"]),
+        common_errors: readArrayFromContent(contentJson, ["commonErrors", "common_errors", "errors"]),
+        gif_url: tutorialRow.gif_url ?? null,
+        video_url: tutorialRow.video_url ?? null,
+        difficulty_level: tutorialRow.difficulty_level ?? null,
+        duration_minutes: tutorialRow.duration_minutes ?? null,
+        is_completed: isCompleted,
+        progress_percent: progressPercent,
+        completed_at: progressRow?.completed_at ?? null,
       },
     })
   } catch (error) {
-    console.error("GET /api/client/tutorials/[machineId] unexpected error:", error)
+    console.error("GET /api/client/tutorials/[id] unexpected error:", error)
     return NextResponse.json({ error: "Error interno del servidor" }, { status: 500 })
   }
 }

@@ -9,7 +9,10 @@ interface TutorialProgressRow {
   completed: boolean | null
   progress_percent: number | null
   completed_at: string | null
-  tutorial: { machine_id: string } | { machine_id: string }[] | null
+  tutorial:
+    | { exercise_id: string; machine_id: string | null }
+    | { exercise_id: string; machine_id: string | null }[]
+    | null
 }
 
 interface ExistingProgressRow {
@@ -26,10 +29,12 @@ interface UpsertProgressRow {
 
 interface TutorialRow {
   id: string
-  machine_id: string
+  exercise_id: string
 }
 
-function normalizeTutorial(value: TutorialProgressRow["tutorial"]): { machine_id: string } | null {
+function normalizeTutorial(
+  value: TutorialProgressRow["tutorial"]
+): { exercise_id: string; machine_id: string | null } | null {
   if (!value) return null
   if (Array.isArray(value)) return value[0] ?? null
   return value
@@ -56,6 +61,7 @@ export async function GET(request: NextRequest) {
         progress_percent,
         completed_at,
         tutorial:machine_tutorials(
+          exercise_id,
           machine_id
         )
       `)
@@ -70,11 +76,11 @@ export async function GET(request: NextRequest) {
       const tutorial = normalizeTutorial(row.tutorial)
       const progressPercent = Number(row.progress_percent ?? 0)
       return {
-        tutorialId: row.tutorial_id,
-        machineId: tutorial?.machine_id ?? null,
-        completed: Boolean(row.completed) || progressPercent >= 100,
-        progressPercent,
-        completedAt: row.completed_at,
+        tutorial_id: row.tutorial_id,
+        exercise_id: tutorial?.exercise_id ?? null,
+        is_completed: Boolean(row.completed) || progressPercent >= 100,
+        progress_percent: progressPercent,
+        completed_at: row.completed_at,
       }
     })
 
@@ -93,14 +99,17 @@ async function writeProgress(request: NextRequest) {
     const supabase = await createClient(request)
     const userId = sessionOrResponse.userId
 
-    const { tutorialId, progressPercent: rawProgressPercent } = await validateBody(request, tutorialProgressBodySchema)
+    const { tutorialId, progressPercent: rawProgressPercent } = await validateBody(
+      request,
+      tutorialProgressBodySchema
+    )
 
     const progressPercent = normalizeProgressPercent(rawProgressPercent)
     const completed = progressPercent >= 100
 
     const { data: tutorial, error: tutorialError } = await supabase
       .from("machine_tutorials")
-      .select("id, machine_id")
+      .select("id, exercise_id")
       .eq("id", tutorialId)
       .eq("is_active", true)
       .maybeSingle()
@@ -159,11 +168,11 @@ async function writeProgress(request: NextRequest) {
 
     return NextResponse.json({
       item: {
-        tutorialId: row.tutorial_id,
-        machineId: tutorialRow.machine_id,
-        completed: Boolean(row.completed),
-        progressPercent: Number(row.progress_percent ?? 0),
-        completedAt: row.completed_at,
+        tutorial_id: row.tutorial_id,
+        exercise_id: tutorialRow.exercise_id,
+        is_completed: Boolean(row.completed),
+        progress_percent: Number(row.progress_percent ?? 0),
+        completed_at: row.completed_at,
       },
     })
   } catch (error) {
