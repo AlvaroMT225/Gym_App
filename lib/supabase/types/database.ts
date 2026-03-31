@@ -1149,6 +1149,8 @@ export type Database = {
           created_at: string | null
           created_by: string | null
           due_date: string | null
+          gateway_name: string | null
+          gateway_transaction_id: string | null
           gym_id: string
           id: string
           membership_id: string | null
@@ -1165,6 +1167,8 @@ export type Database = {
           created_at?: string | null
           created_by?: string | null
           due_date?: string | null
+          gateway_name?: string | null
+          gateway_transaction_id?: string | null
           gym_id: string
           id?: string
           membership_id?: string | null
@@ -1181,6 +1185,8 @@ export type Database = {
           created_at?: string | null
           created_by?: string | null
           due_date?: string | null
+          gateway_name?: string | null
+          gateway_transaction_id?: string | null
           gym_id?: string
           id?: string
           membership_id?: string | null
