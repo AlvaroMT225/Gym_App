@@ -19,7 +19,10 @@ interface TutorialRow {
   title: string
   steps: unknown
   content: unknown
+  gif_url: string | null
   video_url: string | null
+  difficulty_level: number | null
+  duration_minutes: number | null
 }
 
 interface TutorialProgressRow {
@@ -101,7 +104,7 @@ export async function GET(
   if (sessionOrResponse instanceof NextResponse) return sessionOrResponse
 
   try {
-    const supabase = await createClient()
+    const supabase = await createClient(request)
     const userId = sessionOrResponse.userId
 
     const { data: profile, error: profileError } = await supabase
@@ -142,10 +145,11 @@ export async function GET(
 
     const { data: tutorial, error: tutorialError } = await supabase
       .from("machine_tutorials")
-      .select("id, machine_id, title, steps, content, video_url")
+      .select("id, machine_id, title, steps, content, gif_url, video_url, difficulty_level, duration_minutes")
       .eq("machine_id", machineId)
       .eq("is_active", true)
-      .eq("order_index", 1)
+      .order("order_index", { ascending: true })
+      .limit(1)
       .maybeSingle()
 
     if (tutorialError) {
@@ -182,6 +186,7 @@ export async function GET(
 
     return NextResponse.json({
       item: {
+        id: tutorialRow.id,
         machineId: machineRow.id,
         machineName: machineRow.name,
         muscles: machineRow.muscle_groups ?? [],
@@ -190,7 +195,10 @@ export async function GET(
         steps,
         safetyTips,
         commonErrors,
+        gifUrl: tutorialRow.gif_url ?? null,
         videoUrl: tutorialRow.video_url,
+        difficultyLevel: tutorialRow.difficulty_level ?? null,
+        durationMinutes: tutorialRow.duration_minutes ?? null,
         completed,
         progressPercent,
         completedAt: progressRow?.completed_at ?? null,

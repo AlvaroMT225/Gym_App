@@ -840,6 +840,7 @@ export type Database = {
           created_at: string | null
           difficulty_level: number | null
           duration_minutes: number | null
+          gif_url: string | null
           id: string
           is_active: boolean | null
           machine_id: string
@@ -853,6 +854,7 @@ export type Database = {
           created_at?: string | null
           difficulty_level?: number | null
           duration_minutes?: number | null
+          gif_url?: string | null
           id?: string
           is_active?: boolean | null
           machine_id: string
@@ -866,6 +868,7 @@ export type Database = {
           created_at?: string | null
           difficulty_level?: number | null
           duration_minutes?: number | null
+          gif_url?: string | null
           id?: string
           is_active?: boolean | null
           machine_id?: string

@@ -16,6 +16,11 @@ interface TutorialRow {
   id: string
   machine_id: string
   title: string
+  gif_url: string | null
+  video_url: string | null
+  difficulty_level: number | null
+  duration_minutes: number | null
+  steps: unknown
 }
 
 interface TutorialProgressRow {
@@ -25,13 +30,47 @@ interface TutorialProgressRow {
 }
 
 interface TutorialListItemDto {
+  id: string
   machineId: string
   machineName: string
   muscles: string[]
   tutorialId: string
   title: string
+  gifUrl: string | null
+  videoUrl: string | null
+  difficultyLevel: number | null
+  durationMinutes: number | null
+  steps: string[]
   completed: boolean
   progressPercent: number
+}
+
+function parseStringList(value: unknown): string[] {
+  if (!Array.isArray(value)) return []
+
+  return value
+    .map((item) => {
+      if (typeof item === "string") return item.trim()
+      if (item && typeof item === "object") {
+        const record = item as Record<string, unknown>
+        if (typeof record.description === "string") return record.description.trim()
+        if (typeof record.title === "string") return record.title.trim()
+        if (typeof record.text === "string") return record.text.trim()
+      }
+      return ""
+    })
+    .filter((item) => item.length > 0)
+}
+
+function parseSteps(value: unknown): string[] {
+  if (typeof value === "string") {
+    try {
+      return parseStringList(JSON.parse(value))
+    } catch {
+      return []
+    }
+  }
+  return parseStringList(value)
 }
 
 export async function GET(request: NextRequest) {
@@ -39,7 +78,7 @@ export async function GET(request: NextRequest) {
   if (sessionOrResponse instanceof NextResponse) return sessionOrResponse
 
   try {
-    const supabase = await createClient()
+    const supabase = await createClient(request)
     const userId = sessionOrResponse.userId
 
     const { data: profile, error: profileError } = await supabase
@@ -79,10 +118,11 @@ export async function GET(request: NextRequest) {
 
     const { data: tutorialsData, error: tutorialsError } = await supabase
       .from("machine_tutorials")
-      .select("id, machine_id, title")
+      .select("id, machine_id, title, gif_url, video_url, difficulty_level, duration_minutes, steps")
       .eq("is_active", true)
-      .eq("order_index", 1)
       .in("machine_id", machineIds)
+      .order("machine_id", { ascending: true })
+      .order("order_index", { ascending: true })
 
     if (tutorialsError) {
       console.error("GET /api/client/tutorials tutorials query error:", tutorialsError)
@@ -122,11 +162,17 @@ export async function GET(request: NextRequest) {
         const completed = Boolean(progress?.completed) || progressPercent >= 100
 
         return {
+          id: row.id,
           machineId: row.machine_id,
           machineName: machine.name,
           muscles: machine.muscle_groups ?? [],
           tutorialId: row.id,
           title: row.title,
+          gifUrl: row.gif_url ?? null,
+          videoUrl: row.video_url ?? null,
+          difficultyLevel: row.difficulty_level ?? null,
+          durationMinutes: row.duration_minutes ?? null,
+          steps: parseSteps(row.steps),
           completed,
           progressPercent,
         }

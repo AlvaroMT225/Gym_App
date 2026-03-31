@@ -45,7 +45,7 @@ export async function GET(request: NextRequest) {
   if (sessionOrResponse instanceof NextResponse) return sessionOrResponse
 
   try {
-    const supabase = await createClient()
+    const supabase = await createClient(request)
     const userId = sessionOrResponse.userId
 
     const { data, error } = await supabase
@@ -85,12 +85,12 @@ export async function GET(request: NextRequest) {
   }
 }
 
-export async function POST(request: NextRequest) {
+async function writeProgress(request: NextRequest) {
   const sessionOrResponse = await requireRoleFromRequest(request, ["USER"])
   if (sessionOrResponse instanceof NextResponse) return sessionOrResponse
 
   try {
-    const supabase = await createClient()
+    const supabase = await createClient(request)
     const userId = sessionOrResponse.userId
 
     const { tutorialId, progressPercent: rawProgressPercent } = await validateBody(request, tutorialProgressBodySchema)
@@ -170,4 +170,12 @@ export async function POST(request: NextRequest) {
     console.error("POST /api/client/tutorials/progress unexpected error:", error)
     return handleApiError(error)
   }
+}
+
+export async function POST(request: NextRequest) {
+  return writeProgress(request)
+}
+
+export async function PATCH(request: NextRequest) {
+  return writeProgress(request)
 }
