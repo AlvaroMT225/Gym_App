@@ -30,6 +30,7 @@ interface QrSessionRequestBody {
   routineId?: string | null
   exerciseId?: string | null
   exerciseName?: string | null
+  session_duration_seconds?: number
 }
 
 interface AthleteXpTotalsRow {
@@ -481,10 +482,16 @@ function parseRequestBody(value: unknown): QrSessionRequestBody | null {
     return null
   }
 
+  const sessionDurationSeconds =
+    typeof value.session_duration_seconds === "number" && value.session_duration_seconds > 0
+      ? Math.floor(value.session_duration_seconds)
+      : 0
+
   return {
     machine_id: machineId,
     sets_data: setsData,
     notes,
+    session_duration_seconds: sessionDurationSeconds,
     ...parseWorkoutContextInput(value),
   }
 }
@@ -721,6 +728,13 @@ export async function POST(request: NextRequest) {
         { status: 400 }
       )
     }
+    const MAX_SESSION_SETS = 4
+    if (sets_data.length > MAX_SESSION_SETS) {
+      return NextResponse.json(
+        { error: "Máximo 4 series por sesión en la misma máquina." },
+        { status: 400 }
+      )
+    }
 
     const totalVolume = sets_data.reduce((acc, set) => acc + set.weight_kg * set.reps, 0)
     const totalSets = sets_data.length
@@ -728,7 +742,7 @@ export async function POST(request: NextRequest) {
 
     const { data: machine, error: machineError } = await supabase
       .from("machines")
-      .select("region, primary_muscle_group")
+      .select("region, primary_muscle_group, max_weight_limit")
       .eq("id", machine_id)
       .single()
 
@@ -786,6 +800,31 @@ export async function POST(request: NextRequest) {
       }
     }
 
+    // Anti-fraud #3: peso irreal vs límite de la máquina
+    let isFlagged = false
+    let flagReason: string | null = null
+    const maxWeightLimit = typeof machine.max_weight_limit === "number" ? machine.max_weight_limit : null
+    if (maxWeightLimit && maxWeightLimit > 0) {
+      const maxWeightUsed = Math.max(...sets_data.map((s) => s.weight_kg))
+      if (maxWeightUsed > maxWeightLimit) {
+        isFlagged = true
+        flagReason = `Peso reportado (${maxWeightUsed} kg) supera el límite de la máquina (${maxWeightLimit} kg).`
+      }
+    }
+
+    // Anti-fraud #5: salto de volumen > 3x promedio histórico
+    if (recentSessions && recentSessions.length >= 3) {
+      const avgHistorical =
+        recentSessions.reduce((acc, s) => acc + toNonNegativeNumber(s.total_volume), 0) /
+        recentSessions.length
+      if (avgHistorical > 0 && totalVolume > avgHistorical * 3) {
+        isFlagged = true
+        flagReason = flagReason
+          ? `${flagReason} | Volumen (${totalVolume.toFixed(0)} kg) supera 3x el promedio histórico (${avgHistorical.toFixed(0)} kg).`
+          : `Volumen (${totalVolume.toFixed(0)} kg) supera 3x el promedio histórico (${avgHistorical.toFixed(0)} kg).`
+      }
+    }
+
     const guidedParentSession = workoutContext.routineId
       ? await ensureGuidedQrWorkoutSession({
           supabase,
@@ -808,6 +847,9 @@ export async function POST(request: NextRequest) {
         factor_constancia: 1,
         consecutive_active_weeks: 0,
         session_xp: 0,
+        is_flagged: isFlagged,
+        flag_reason: flagReason,
+        session_duration_seconds: body.session_duration_seconds ?? 0,
         region,
         primary_muscle_group: primaryMuscleGroup,
         exercise_id: workoutContext.exerciseId ?? null,
