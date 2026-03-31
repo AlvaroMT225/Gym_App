@@ -1,9 +1,8 @@
 import { NextRequest, NextResponse } from "next/server"
+import { paginationParams } from "@/lib/api-utils"
 import { requireRoleFromRequest } from "@/lib/auth/guards"
 import { createClient } from "@/lib/supabase/server"
-import { paginationParams } from "@/lib/api-utils"
 
-// Reuse the same time-window filter pattern from /api/promotions/active
 function buildWindowFilter(nowIso: string): string {
   return (
     `or(and(starts_at.is.null,expires_at.is.null),` +
@@ -23,7 +22,7 @@ interface PromotionRow {
   starts_at: string | null
   expires_at: string | null
   max_uses: number | null
-  uses_count: number
+  uses_count: number | null
   status: string
 }
 
@@ -36,14 +35,23 @@ export interface PromotionDto {
   id: string
   title: string
   description: string | null
+  discount_type: string | null
+  discount_value: number
   code: string | null
+  expires_at: string | null
+  max_uses: number | null
+  uses_count: number
+  is_redeemed: boolean
+  redeemed_at: string | null
+  starts_at: string | null
+  status: string
   discountType: string | null
   discountValue: number
   startsAt: string | null
   expiresAt: string | null
   maxUses: number | null
   usesCount: number
-  status: string
+  isRedeemed: boolean
   redeemed: boolean
   redeemedAt: string | null
 }
@@ -58,7 +66,6 @@ export async function GET(request: NextRequest) {
     const { searchParams } = new URL(request.url)
     const { limit, offset } = paginationParams(searchParams)
 
-    // Get user's gym_id
     const { data: profile, error: profileError } = await supabase
       .from("profiles")
       .select("gym_id")
@@ -79,18 +86,15 @@ export async function GET(request: NextRequest) {
 
     const nowIso = new Date().toISOString()
 
-    // Step 1: active promotions in the valid time window for this gym
-    const { data: promotionsData, count, error: promotionsError } = await supabase
+    const { data: promotionsData, error: promotionsError } = await supabase
       .from("promotions")
       .select(
-        "id, title, description, code, discount_type, discount_value, starts_at, expires_at, max_uses, uses_count, status",
-        { count: "exact", head: false }
+        "id, title, description, code, discount_type, discount_value, starts_at, expires_at, max_uses, uses_count, status"
       )
       .eq("gym_id", profile.gym_id)
       .eq("status", "active")
       .or(buildWindowFilter(nowIso))
       .order("created_at", { ascending: false })
-      .range(offset, offset + limit - 1)
 
     if (promotionsError) {
       console.error("GET /api/client/promotions promotions error:", promotionsError)
@@ -98,9 +102,7 @@ export async function GET(request: NextRequest) {
     }
 
     const rows = (promotionsData ?? []) as PromotionRow[]
-
-    // Step 2: user's redemptions for these promos
-    const promotionIds = rows.map((p) => p.id)
+    const promotionIds = rows.map((promotion) => promotion.id)
     let redeemedMap = new Map<string, string>()
 
     if (promotionIds.length > 0) {
@@ -112,36 +114,58 @@ export async function GET(request: NextRequest) {
 
       if (userPromosError) {
         console.error("GET /api/client/promotions user_promotions error:", userPromosError)
-        // Non-fatal: continue without redemption info
       } else {
         redeemedMap = new Map(
-          ((userPromos ?? []) as UserPromotionRow[]).map((up) => [up.promotion_id, up.used_at])
+          ((userPromos ?? []) as UserPromotionRow[]).map((userPromotion) => [
+            userPromotion.promotion_id,
+            userPromotion.used_at,
+          ])
         )
       }
     }
 
-    // Step 3: build DTOs — filter out exhausted promos
     const promotions: PromotionDto[] = rows
-      .filter((p) => p.max_uses == null || p.uses_count < p.max_uses || redeemedMap.has(p.id))
-      .map((p) => ({
-        id: p.id,
-        title: p.title,
-        description: p.description,
-        code: p.code,
-        discountType: p.discount_type,
-        discountValue: Number(p.discount_value),
-        startsAt: p.starts_at,
-        expiresAt: p.expires_at,
-        maxUses: p.max_uses,
-        usesCount: p.uses_count,
-        status: p.status,
-        redeemed: redeemedMap.has(p.id),
-        redeemedAt: redeemedMap.get(p.id) ?? null,
-      }))
+      .filter((promotion) => {
+        const usesCount = promotion.uses_count ?? 0
+        return promotion.max_uses == null || usesCount < promotion.max_uses
+      })
+      .map((promotion) => {
+        const usesCount = promotion.uses_count ?? 0
+        const redeemedAt = redeemedMap.get(promotion.id) ?? null
+        const isRedeemed = redeemedAt != null
+
+        return {
+          id: promotion.id,
+          title: promotion.title,
+          description: promotion.description,
+          discount_type: promotion.discount_type,
+          discount_value: Number(promotion.discount_value),
+          code: promotion.code,
+          expires_at: promotion.expires_at,
+          max_uses: promotion.max_uses,
+          uses_count: usesCount,
+          is_redeemed: isRedeemed,
+          redeemed_at: redeemedAt,
+          starts_at: promotion.starts_at,
+          status: promotion.status,
+          discountType: promotion.discount_type,
+          discountValue: Number(promotion.discount_value),
+          startsAt: promotion.starts_at,
+          expiresAt: promotion.expires_at,
+          maxUses: promotion.max_uses,
+          usesCount,
+          isRedeemed,
+          redeemed: isRedeemed,
+          redeemedAt,
+        }
+      })
+
+    const paginatedPromotions = promotions.slice(offset, offset + limit)
+    const total = promotions.length
 
     return NextResponse.json(
-      { promotions, total: count ?? 0, limit, offset },
-      { headers: { "X-Total-Count": String(count ?? 0) } }
+      { promotions: paginatedPromotions, total, limit, offset },
+      { headers: { "X-Total-Count": String(total) } }
     )
   } catch (error) {
     console.error("GET /api/client/promotions unexpected error:", error)

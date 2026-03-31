@@ -2870,6 +2870,14 @@ export type Database = {
         Args: { p_promotion_id: string }
         Returns: undefined
       }
+      redeem_promotion: {
+        Args: { p_code?: string | null; p_promotion_id?: string | null }
+        Returns: {
+          promotion_id: string
+          redeemed_at: string
+          uses_count: number
+        }[]
+      }
       increment_qr_scan: { Args: { p_qr_code: string }; Returns: undefined }
       is_coach: { Args: never; Returns: boolean }
       is_gym_admin: { Args: never; Returns: boolean }

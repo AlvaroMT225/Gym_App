@@ -33,18 +33,21 @@ function mapRedeemError(error: { message?: string } | null) {
   }
 }
 
-export async function POST(
-  request: NextRequest,
-  { params }: { params: Promise<{ id: string }> }
-) {
-  const { id: promotionId } = await params
+export async function POST(request: NextRequest) {
   const sessionOrResponse = await requireRoleFromRequest(request, ["USER"])
   if (sessionOrResponse instanceof NextResponse) return sessionOrResponse
 
   try {
+    const payload = await request.json().catch(() => null)
+    const code = typeof payload?.code === "string" ? payload.code.trim() : ""
+
+    if (!code) {
+      return NextResponse.json({ error: "Codigo invalido" }, { status: 400 })
+    }
+
     const supabase = await createClient(request)
     const { data, error } = await supabase.rpc("redeem_promotion", {
-      p_promotion_id: promotionId,
+      p_code: code,
     })
 
     if (error) {
@@ -54,14 +57,14 @@ export async function POST(
         return NextResponse.json({ error: mappedError.error }, { status: mappedError.status })
       }
 
-      console.error("POST /api/client/promotions/[id]/redeem rpc error:", error)
+      console.error("POST /api/client/promotions/redeem rpc error:", error)
       return NextResponse.json({ error: "Error al canjear promocion" }, { status: 500 })
     }
 
     const redeemed = (data as RedeemPromotionResult[] | null)?.[0]
 
     if (!redeemed) {
-      console.error("POST /api/client/promotions/[id]/redeem missing result")
+      console.error("POST /api/client/promotions/redeem missing result")
       return NextResponse.json({ error: "Error al canjear promocion" }, { status: 500 })
     }
 
@@ -75,7 +78,7 @@ export async function POST(
       usesCount: redeemed.uses_count,
     })
   } catch (error) {
-    console.error("POST /api/client/promotions/[id]/redeem unexpected error:", error)
+    console.error("POST /api/client/promotions/redeem unexpected error:", error)
     return NextResponse.json({ error: "Error interno del servidor" }, { status: 500 })
   }
 }
