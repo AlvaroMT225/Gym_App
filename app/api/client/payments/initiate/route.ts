@@ -4,7 +4,7 @@ import { manualPaymentAdapter } from "@/lib/payment-adapters/manual"
 import { requireRoleFromRequest } from "@/lib/auth/guards"
 import { createAdminClient, createClient } from "@/lib/supabase/server"
 
-const PLAN_TYPES: PlanType[] = ["basic", "premium", "vip", "custom"]
+const PLAN_TYPES: PlanType[] = ["monthly", "quarterly", "annual"]
 const PAYMENT_METHODS: PaymentMethod[] = ["cash", "card", "transfer", "app"]
 
 function isPlanType(value: unknown): value is PlanType {
@@ -13,6 +13,32 @@ function isPlanType(value: unknown): value is PlanType {
 
 function isPaymentMethod(value: unknown): value is PaymentMethod {
   return typeof value === "string" && PAYMENT_METHODS.includes(value as PaymentMethod)
+}
+
+interface MembershipLookupRow {
+  id: string
+  plan_type: string | null
+  status: PaymentMembershipContext["status"]
+  start_date: string | null
+  end_date: string | null
+  auto_renew: boolean | null
+  price_paid: number | null
+}
+
+function normalizeMembership(row: MembershipLookupRow | null): PaymentMembershipContext | null {
+  if (!row || !isPlanType(row.plan_type)) {
+    return null
+  }
+
+  return {
+    id: row.id,
+    plan_type: row.plan_type,
+    status: row.status,
+    start_date: row.start_date,
+    end_date: row.end_date,
+    auto_renew: row.auto_renew,
+    price_paid: row.price_paid,
+  }
 }
 
 async function getAthleteGymId(
@@ -59,8 +85,9 @@ async function getMembershipForPlan(
     throw new Error("MEMBERSHIP_LOOKUP_FAILED")
   }
 
-  if (activeMembership) {
-    return activeMembership
+  const normalizedActiveMembership = normalizeMembership(activeMembership as MembershipLookupRow | null)
+  if (normalizedActiveMembership) {
+    return normalizedActiveMembership
   }
 
   const { data: latestMembership, error: latestError } = await supabase
@@ -78,7 +105,7 @@ async function getMembershipForPlan(
     throw new Error("MEMBERSHIP_LOOKUP_FAILED")
   }
 
-  return latestMembership ?? null
+  return normalizeMembership(latestMembership as MembershipLookupRow | null)
 }
 
 async function getActivePlanPrice(

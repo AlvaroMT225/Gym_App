@@ -2,8 +2,8 @@ import type { createAdminClient } from "@/lib/supabase/server"
 import type { Database } from "@/lib/supabase/types/database"
 
 export type SupabaseClient = ReturnType<typeof createAdminClient>
-export type PlanType = Database["public"]["Enums"]["plan_type"]
-export type PaymentMethod = Database["public"]["Enums"]["payment_method"]
+export type PlanType = "monthly" | "quarterly" | "annual"
+export type PaymentMethod = "cash" | "card" | "transfer" | "app"
 export type PaymentStatus = Database["public"]["Enums"]["payment_status"]
 
 export interface PaymentMembershipContext {
