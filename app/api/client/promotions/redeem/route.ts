@@ -170,6 +170,7 @@ export async function POST(request: NextRequest) {
 
     const supabase = await createClient(request)
     const { data, error } = await supabase.rpc("redeem_promotion", {
+      p_profile_id: userId,
       p_code: code,
     })
 
