@@ -3,7 +3,9 @@ import { cookies } from 'next/headers'
 
 type RequestWithHeaders = Pick<Request, 'headers'>
 
-function requireEnv(name: 'NEXT_PUBLIC_SUPABASE_URL' | 'SUPABASE_SERVICE_ROLE_KEY') {
+function requireEnv(
+  name: 'NEXT_PUBLIC_SUPABASE_URL' | 'NEXT_PUBLIC_SUPABASE_ANON_KEY' | 'SUPABASE_SERVICE_ROLE_KEY'
+) {
   const value = process.env[name]
 
   if (!value) {
@@ -67,6 +69,23 @@ export function createAdminClient() {
   return createServerClient(
     supabaseUrl,
     serviceRoleKey,
+    {
+      cookies: {
+        getAll() { return [] },
+        setAll() {},
+      },
+    }
+  )
+}
+
+// Stateless anon client for auth operations that must not mutate the current session.
+export function createStatelessClient() {
+  const supabaseUrl = requireEnv('NEXT_PUBLIC_SUPABASE_URL')
+  const anonKey = requireEnv('NEXT_PUBLIC_SUPABASE_ANON_KEY')
+
+  return createServerClient(
+    supabaseUrl,
+    anonKey,
     {
       cookies: {
         getAll() { return [] },
