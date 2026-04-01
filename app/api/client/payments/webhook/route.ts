@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server"
-import { manualPaymentAdapter } from "@/lib/payment-adapters/manual"
+import { getWebhookAdapter } from "@/lib/payment-adapters/registry"
 
 function getPayloadGatewayName(payload: unknown) {
   if (!payload || typeof payload !== "object") {
@@ -33,8 +33,9 @@ export async function POST(request: NextRequest) {
     }
 
     const gatewayName = getPayloadGatewayName(payload)
+    const paymentAdapter = getWebhookAdapter(gatewayName)
 
-    if (gatewayName !== manualPaymentAdapter.gatewayName) {
+    if (!paymentAdapter) {
       return NextResponse.json(
         {
           received: true,
@@ -47,7 +48,7 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    const result = await manualPaymentAdapter.handleWebhook({
+    const result = await paymentAdapter.handleWebhook({
       payload,
       raw_body: rawBody,
       headers: request.headers,

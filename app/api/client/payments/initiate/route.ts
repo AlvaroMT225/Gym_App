@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server"
 import type { PaymentMembershipContext, PaymentMethod, PlanType } from "@/lib/payment-adapters/interface"
-import { manualPaymentAdapter } from "@/lib/payment-adapters/manual"
+import { getPaymentAdapter } from "@/lib/payment-adapters/registry"
 import { requireRoleFromRequest } from "@/lib/auth/guards"
 import { createAdminClient, createClient } from "@/lib/supabase/server"
 
@@ -168,7 +168,8 @@ export async function POST(request: NextRequest) {
 
     const membership = await getMembershipForPlan(userClient, userId, gymId, planType)
     const adminClient = createAdminClient()
-    const result = await manualPaymentAdapter.initiatePayment(adminClient, {
+    const paymentAdapter = getPaymentAdapter()
+    const result = await paymentAdapter.initiatePayment(adminClient, {
       profile_id: userId,
       gym_id: gymId,
       plan_type: planType,

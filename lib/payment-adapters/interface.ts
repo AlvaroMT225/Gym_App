@@ -5,6 +5,7 @@ export type SupabaseClient = ReturnType<typeof createAdminClient>
 export type PlanType = "monthly" | "quarterly" | "annual"
 export type PaymentMethod = "cash" | "card" | "transfer" | "app"
 export type PaymentStatus = Database["public"]["Enums"]["payment_status"]
+export type PaymentGatewayName = "manual" | "future_provider"
 
 export interface PaymentMembershipContext {
   id: string
@@ -28,7 +29,7 @@ export interface PaymentInitiationInput {
 export interface PaymentInitiationResult {
   payment_id: string
   instructions: string
-  gateway_name: string
+  gateway_name: PaymentGatewayName | string
   status: PaymentStatus | null
 }
 
@@ -40,14 +41,14 @@ export interface PaymentWebhookInput {
 
 export interface PaymentWebhookResult {
   received: boolean
-  gateway_name: string
+  gateway_name: PaymentGatewayName | string
   processed: boolean
   status: string
   message: string
 }
 
 export interface PaymentAdapter {
-  readonly gatewayName: string
+  readonly gatewayName: PaymentGatewayName
   initiatePayment(
     supabase: SupabaseClient,
     input: PaymentInitiationInput
