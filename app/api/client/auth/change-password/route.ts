@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server"
 import { z } from "zod"
 import { requireRoleFromRequest } from "@/lib/auth/guards"
 import { handleApiError, validateBody } from "@/lib/api-utils"
-import { createClient, createStatelessClient } from "@/lib/supabase/server"
+import { createAdminClient, createStatelessClient } from "@/lib/supabase/server"
 
 const changePasswordSchema = z
   .object({
@@ -43,8 +43,11 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "No se pudo verificar la contraseña actual" }, { status: 500 })
     }
 
-    const supabase = await createClient(request)
-    const { error: updateError } = await supabase.auth.updateUser({ password: newPassword })
+    const adminClient = createAdminClient()
+    const { error: updateError } = await adminClient.auth.admin.updateUserById(
+      sessionOrResponse.userId,
+      { password: newPassword }
+    )
 
     if (updateError) {
       console.error("POST /api/client/auth/change-password update error:", updateError)
