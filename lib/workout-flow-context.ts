@@ -21,6 +21,12 @@ interface ExerciseRow {
   machine_id: string | null
 }
 
+export const WORKOUT_CONTEXT_MACHINE_FALLBACK_NOT_FOUND_ERROR =
+  "No hay un ejercicio configurado para la máquina seleccionada."
+
+export const WORKOUT_CONTEXT_MACHINE_FALLBACK_AMBIGUOUS_ERROR =
+  "La máquina seleccionada tiene múltiples ejercicios asociados y la sesión QR no puede determinar cuál usar."
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null
 }
@@ -156,13 +162,41 @@ async function resolveExerciseByName(
   return data as ExerciseRow
 }
 
+async function resolveExerciseByMachineId(
+  supabase: SupabaseClient,
+  machineId: string
+) {
+  const { data, error } = await supabase
+    .from("exercises")
+    .select("id, name, machine_id")
+    .eq("machine_id", machineId)
+    .limit(2)
+
+  if (error) {
+    throw error
+  }
+
+  const exercises = (data ?? []) as ExerciseRow[]
+
+  if (exercises.length === 0) {
+    throw new Error(WORKOUT_CONTEXT_MACHINE_FALLBACK_NOT_FOUND_ERROR)
+  }
+
+  if (exercises.length > 1) {
+    throw new Error(WORKOUT_CONTEXT_MACHINE_FALLBACK_AMBIGUOUS_ERROR)
+  }
+
+  return exercises[0]
+}
+
 export async function resolveWorkoutContext(params: {
   supabase: SupabaseClient
   athleteId: string
   machineId: string
   input: WorkoutContextInput
+  allowMachineExerciseFallback?: boolean
 }) {
-  const { supabase, athleteId, machineId, input } = params
+  const { supabase, athleteId, machineId, input, allowMachineExerciseFallback = false } = params
 
   if (input.routineId) {
     const { data: routine, error: routineError } = await supabase
@@ -190,6 +224,10 @@ export async function resolveWorkoutContext(params: {
     exerciseName = exercise.name
   } else if (input.exerciseName) {
     const exercise = await resolveExerciseByName(supabase, machineId, input.exerciseName)
+    exerciseId = exercise.id
+    exerciseName = exercise.name
+  } else if (allowMachineExerciseFallback) {
+    const exercise = await resolveExerciseByMachineId(supabase, machineId)
     exerciseId = exercise.id
     exerciseName = exercise.name
   }

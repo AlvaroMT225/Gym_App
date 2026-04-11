@@ -11,6 +11,8 @@ import {
   parseSessionMetadataNotes,
   resolveWorkoutContext,
   serializeSessionMetadataNotes,
+  WORKOUT_CONTEXT_MACHINE_FALLBACK_AMBIGUOUS_ERROR,
+  WORKOUT_CONTEXT_MACHINE_FALLBACK_NOT_FOUND_ERROR,
 } from "@/lib/workout-flow-context"
 
 type WeightUnit = "kg" | "lb"
@@ -92,6 +94,15 @@ const FC2_INCREMENT = 0.05
 const FC2_LOOKBACK_WEEKS = 16
 const DUPLICATE_WINDOW_MS = 5 * 60 * 1000
 const QR_EXERCISE_HISTORY_BATCH_SIZE = 50
+const QR_WORKOUT_CONTEXT_BAD_REQUEST_MESSAGES = new Set([
+  WORKOUT_CONTEXT_MACHINE_FALLBACK_NOT_FOUND_ERROR,
+  WORKOUT_CONTEXT_MACHINE_FALLBACK_AMBIGUOUS_ERROR,
+  "El ejercicio indicado no existe.",
+  "El ejercicio indicado no corresponde a la máquina seleccionada.",
+  "El ejercicio indicado no existe para la máquina seleccionada.",
+  "El ejercicio indicado no pertenece a la rutina seleccionada.",
+  "La rutina indicada no pertenece al atleta autenticado.",
+])
 
 function toNullableRank(value: unknown): number | null {
   if (typeof value === "number" && Number.isFinite(value) && value > 0) {
@@ -750,16 +761,26 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "Machine not found" }, { status: 404 })
     }
 
-    const workoutContext = await resolveWorkoutContext({
-      supabase,
-      athleteId,
-      machineId: machine_id,
-      input: {
-        routineId: body.routineId ?? null,
-        exerciseId: body.exerciseId ?? null,
-        exerciseName: body.exerciseName ?? null,
-      },
-    })
+    let workoutContext: Awaited<ReturnType<typeof resolveWorkoutContext>>
+    try {
+      workoutContext = await resolveWorkoutContext({
+        supabase,
+        athleteId,
+        machineId: machine_id,
+        input: {
+          routineId: body.routineId ?? null,
+          exerciseId: body.exerciseId ?? null,
+          exerciseName: body.exerciseName ?? null,
+        },
+        allowMachineExerciseFallback: true,
+      })
+    } catch (error) {
+      if (error instanceof Error && QR_WORKOUT_CONTEXT_BAD_REQUEST_MESSAGES.has(error.message)) {
+        return NextResponse.json({ error: error.message }, { status: 400 })
+      }
+
+      throw error
+    }
 
     if (!workoutContext.exerciseId) {
       return NextResponse.json(
