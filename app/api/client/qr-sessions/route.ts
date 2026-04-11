@@ -14,6 +14,7 @@ import {
   WORKOUT_CONTEXT_MACHINE_FALLBACK_AMBIGUOUS_ERROR,
   WORKOUT_CONTEXT_MACHINE_FALLBACK_NOT_FOUND_ERROR,
 } from "@/lib/workout-flow-context"
+import { syncUserStatsForProfile } from "@/lib/user-stats-sync"
 
 type WeightUnit = "kg" | "lb"
 
@@ -66,14 +67,6 @@ interface XpSnapshot {
 interface CompetitiveWorkoutSessionDateRow {
   started_at: string | null
   ended_at: string | null
-}
-
-interface CompletedWorkoutSessionAggregateRow {
-  started_at: string | null
-  ended_at: string | null
-  total_volume_kg: number | null
-  total_sets: number | null
-  total_reps: number | null
 }
 
 interface RecentQrSessionNoteRow {
@@ -289,136 +282,6 @@ function subtractWeeks(weekKey: string, weeks: number): string {
   const date = new Date(`${weekKey}T00:00:00Z`)
   date.setUTCDate(date.getUTCDate() - weeks * 7)
   return date.toISOString().slice(0, 10)
-}
-
-function shiftDateKey(dateKey: string, days: number): string {
-  const date = new Date(`${dateKey}T00:00:00Z`)
-  date.setUTCDate(date.getUTCDate() + days)
-  return date.toISOString().slice(0, 10)
-}
-
-function buildStreakSnapshot(sessionDateKeys: string[], referenceDateKey: string): {
-  currentStreak: number
-  longestStreak: number
-} {
-  const distinctDateKeys = Array.from(new Set(sessionDateKeys)).sort()
-  if (distinctDateKeys.length === 0) {
-    return {
-      currentStreak: 0,
-      longestStreak: 0,
-    }
-  }
-
-  let longestStreak = 0
-  let currentRun = 0
-  let previousDateKey: string | null = null
-
-  for (const dateKey of distinctDateKeys) {
-    if (previousDateKey && dateKey === shiftDateKey(previousDateKey, 1)) {
-      currentRun += 1
-    } else {
-      currentRun = 1
-    }
-
-    longestStreak = Math.max(longestStreak, currentRun)
-    previousDateKey = dateKey
-  }
-
-  const mostRecentDateKey = distinctDateKeys[distinctDateKeys.length - 1]
-  const yesterdayDateKey = shiftDateKey(referenceDateKey, -1)
-
-  if (mostRecentDateKey !== referenceDateKey && mostRecentDateKey !== yesterdayDateKey) {
-    return {
-      currentStreak: 0,
-      longestStreak,
-    }
-  }
-
-  let currentStreak = 1
-  let expectedDateKey = shiftDateKey(mostRecentDateKey, -1)
-
-  for (let index = distinctDateKeys.length - 2; index >= 0; index -= 1) {
-    if (distinctDateKeys[index] !== expectedDateKey) {
-      break
-    }
-
-    currentStreak += 1
-    expectedDateKey = shiftDateKey(expectedDateKey, -1)
-  }
-
-  return {
-    currentStreak,
-    longestStreak,
-  }
-}
-
-async function syncUserStatsAfterCompetitiveQrSession(params: {
-  adminClient: ReturnType<typeof createAdminClient>
-  supabase: SupabaseClient
-  athleteId: string
-  syncTimestampIso?: string
-}): Promise<void> {
-  const { adminClient, supabase, athleteId, syncTimestampIso } = params
-  const { data, error } = await supabase
-    .from("workout_sessions")
-    .select("started_at, ended_at, total_volume_kg, total_sets, total_reps")
-    .eq("profile_id", athleteId)
-    .eq("status", "completed")
-
-  if (error) {
-    throw error
-  }
-
-  const completedSessions = (data ?? []) as CompletedWorkoutSessionAggregateRow[]
-  const sessionDateKeys = completedSessions
-    .map((session) => formatDateKeyInTimeZone(session.ended_at ?? session.started_at ?? "", APP_TIME_ZONE))
-    .filter((value): value is string => Boolean(value))
-
-  const referenceDateKey = formatDateKeyInTimeZone(syncTimestampIso ?? new Date().toISOString(), APP_TIME_ZONE)
-  const streakSnapshot = referenceDateKey
-    ? buildStreakSnapshot(sessionDateKeys, referenceDateKey)
-    : { currentStreak: 0, longestStreak: 0 }
-
-  let lastWorkoutAt: string | null = null
-  let totalVolumeKg = 0
-  let totalSets = 0
-  let totalReps = 0
-
-  for (const session of completedSessions) {
-    totalVolumeKg += toNonNegativeNumber(session.total_volume_kg)
-    totalSets += toNonNegativeNumber(session.total_sets)
-    totalReps += toNonNegativeNumber(session.total_reps)
-
-    const sessionTimestamp = session.ended_at ?? session.started_at
-    if (!sessionTimestamp) {
-      continue
-    }
-
-    if (!lastWorkoutAt || new Date(sessionTimestamp).getTime() > new Date(lastWorkoutAt).getTime()) {
-      lastWorkoutAt = sessionTimestamp
-    }
-  }
-
-  const { error: upsertError } = await adminClient.from("user_stats").upsert(
-    {
-      profile_id: athleteId,
-      total_sessions: completedSessions.length,
-      total_volume_kg: roundToDecimals(totalVolumeKg, 2),
-      total_sets: totalSets,
-      total_reps: totalReps,
-      current_streak: streakSnapshot.currentStreak,
-      longest_streak: streakSnapshot.longestStreak,
-      last_workout_at: lastWorkoutAt,
-      updated_at: syncTimestampIso ?? new Date().toISOString(),
-    },
-    {
-      onConflict: "profile_id",
-    }
-  )
-
-  if (upsertError) {
-    throw upsertError
-  }
 }
 
 async function calculateStrictFactorConstancia(params: {
@@ -1176,10 +1039,8 @@ export async function POST(request: NextRequest) {
     }
 
     const adminClient = createAdminClient()
-    await syncUserStatsAfterCompetitiveQrSession({
-      adminClient,
-      supabase,
-      athleteId,
+    await syncUserStatsForProfile({
+      profileId: athleteId,
       syncTimestampIso: insertedQrSession.created_at,
     })
 

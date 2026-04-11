@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
 import { requireRoleFromRequest } from "@/lib/auth/guards"
-import { createClient } from "@/lib/supabase/server"
+import { createAdminClient, createClient } from "@/lib/supabase/server"
+import { syncUserStatsForProfile } from "@/lib/user-stats-sync"
 
 type SupabaseClient = Awaited<ReturnType<typeof createClient>>
 
@@ -364,6 +365,20 @@ export async function GET(request: NextRequest) {
   try {
     const supabase = await createClient(request)
     const userId = sessionOrResponse.userId
+    const adminClient = createAdminClient()
+
+    await syncUserStatsForProfile({
+      profileId: userId,
+    })
+
+    const { error: achievementsSyncError } = await adminClient.rpc("check_achievements", {
+      p_profile_id: userId,
+    })
+
+    if (achievementsSyncError) {
+      console.error("GET /api/client/achievements check_achievements error:", achievementsSyncError)
+      return NextResponse.json({ error: "Error al sincronizar logros del atleta" }, { status: 500 })
+    }
 
     const [
       achievementsResult,
