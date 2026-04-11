@@ -8,11 +8,29 @@ export async function GET(request: NextRequest) {
   if (sessionOrResponse instanceof NextResponse) return sessionOrResponse
 
   try {
+    const supabase = await createClient(request)
+    const { data: existingStats, error: existingStatsError } = await supabase
+      .from("user_stats")
+      .select("current_streak, total_points")
+      .eq("profile_id", sessionOrResponse.userId)
+      .maybeSingle()
+
+    if (existingStatsError) {
+      console.error("GET /api/user/stats query error:", existingStatsError)
+      return NextResponse.json({ error: "Error al obtener estadisticas" }, { status: 500 })
+    }
+
+    if (existingStats) {
+      return NextResponse.json({
+        currentStreak: existingStats.current_streak ?? 0,
+        totalPoints: existingStats.total_points ?? 0,
+      })
+    }
+
     await syncUserStatsForProfile({
       profileId: sessionOrResponse.userId,
     })
 
-    const supabase = await createClient(request)
     const { data, error } = await supabase
       .from("user_stats")
       .select("current_streak, total_points")
@@ -20,7 +38,7 @@ export async function GET(request: NextRequest) {
       .maybeSingle()
 
     if (error) {
-      console.error("GET /api/user/stats query error:", error)
+      console.error("GET /api/user/stats backfill query error:", error)
       return NextResponse.json({ error: "Error al obtener estadisticas" }, { status: 500 })
     }
 
