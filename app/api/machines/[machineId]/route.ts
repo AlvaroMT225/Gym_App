@@ -70,6 +70,11 @@ interface WorkoutSessionLookupRow {
   routine_id: string | null
 }
 
+interface MachineExerciseRow {
+  id: string
+  name: string
+}
+
 function toNonNegativeNumber(value: unknown): number {
   if (typeof value === "number" && Number.isFinite(value)) {
     return value >= 0 ? value : 0
@@ -298,7 +303,11 @@ export async function GET(
     }
 
     if (!profile?.gym_id) {
-      return NextResponse.json({ machine: null, history: [] satisfies MachineHistoryEntry[] })
+      return NextResponse.json({
+        machine: null,
+        history: [] satisfies MachineHistoryEntry[],
+        exercises: [] satisfies MachineExerciseRow[],
+      })
     }
 
     const { data: machine, error: machineError } = await supabase
@@ -314,13 +323,24 @@ export async function GET(
     }
 
     if (!machine) {
-      return NextResponse.json({ machine: null, history: [] satisfies MachineHistoryEntry[] })
+      return NextResponse.json({
+        machine: null,
+        history: [] satisfies MachineHistoryEntry[],
+        exercises: [] satisfies MachineExerciseRow[],
+      })
     }
 
     const [
+      { data: exerciseRows, error: exercisesError },
       { data: qrHistoryRows, error: qrHistoryError },
       { data: manualHistoryRows, error: manualHistoryError },
     ] = await Promise.all([
+      supabase
+        .from("exercises")
+        .select("id, name")
+        .eq("machine_id", machineId)
+        .or(`gym_id.eq.${profile.gym_id},is_public.eq.true`)
+        .order("name", { ascending: true }),
       supabase
         .from("qr_sessions")
         .select("id, created_at, notes, total_volume, session_xp, factor_progreso, sets_data, workout_session_id")
@@ -336,6 +356,11 @@ export async function GET(
         .order("created_at", { ascending: false })
         .limit(10),
     ])
+
+    if (exercisesError) {
+      console.error("GET /api/machines/[machineId] exercises error:", exercisesError)
+      return NextResponse.json({ error: "Error al obtener ejercicios de la maquina" }, { status: 500 })
+    }
 
     if (qrHistoryError) {
       console.error("GET /api/machines/[machineId] qr history error:", qrHistoryError)
@@ -412,7 +437,12 @@ export async function GET(
       .sort((left, right) => new Date(right.created_at).getTime() - new Date(left.created_at).getTime())
       .slice(0, 10)
 
-    return NextResponse.json({ machine, history })
+    const exercises = ((exerciseRows ?? []) as MachineExerciseRow[]).map((exercise) => ({
+      id: exercise.id,
+      name: exercise.name,
+    }))
+
+    return NextResponse.json({ machine, history, exercises })
   } catch (error) {
     console.error("GET /api/machines/[machineId] unexpected error:", error)
     return NextResponse.json({ error: "Error interno del servidor" }, { status: 500 })
