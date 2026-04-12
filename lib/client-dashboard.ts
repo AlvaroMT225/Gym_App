@@ -102,17 +102,6 @@ function readNumberMap(value: unknown): Record<string, number> {
   return parsed
 }
 
-function getNowInTimeZone(timeZone: string): Date {
-  const localNow = new Intl.DateTimeFormat("en-CA", {
-    timeZone,
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-  }).format(new Date())
-
-  return new Date(`${localNow}T00:00:00`)
-}
-
 function formatDateInTimeZone(dateIso: string, timeZone: string): string {
   return new Intl.DateTimeFormat("en-CA", {
     timeZone,
@@ -122,10 +111,14 @@ function formatDateInTimeZone(dateIso: string, timeZone: string): string {
   }).format(new Date(dateIso))
 }
 
-function subtractDays(date: Date, days: number): Date {
-  const next = new Date(date)
-  next.setDate(next.getDate() - days)
-  return next
+function getCurrentDateKeyInTimeZone(timeZone: string): string {
+  return formatDateInTimeZone(new Date().toISOString(), timeZone)
+}
+
+function shiftDateKey(dateKey: string, days: number): string {
+  const date = new Date(`${dateKey}T00:00:00Z`)
+  date.setUTCDate(date.getUTCDate() + days)
+  return date.toISOString().slice(0, 10)
 }
 
 function calculateQrStreak(sessionDates: string[], timeZone: string): number {
@@ -138,9 +131,8 @@ function calculateQrStreak(sessionDates: string[], timeZone: string): number {
     return 0
   }
 
-  const today = getNowInTimeZone(timeZone)
-  const todayKey = formatDateInTimeZone(today.toISOString(), timeZone)
-  const yesterdayKey = formatDateInTimeZone(subtractDays(today, 1).toISOString(), timeZone)
+  const todayKey = getCurrentDateKeyInTimeZone(timeZone)
+  const yesterdayKey = shiftDateKey(todayKey, -1)
   const firstDate = distinctDates[0]
 
   if (firstDate !== todayKey && firstDate !== yesterdayKey) {
@@ -156,7 +148,7 @@ function calculateQrStreak(sessionDates: string[], timeZone: string): number {
     }
 
     streak += 1
-    expected = formatDateInTimeZone(subtractDays(new Date(`${expected}T00:00:00`), 1).toISOString(), timeZone)
+    expected = shiftDateKey(expected, -1)
   }
 
   return streak
