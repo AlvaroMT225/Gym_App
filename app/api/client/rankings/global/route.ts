@@ -42,6 +42,26 @@ interface GlobalLeaderboardEntry {
   is_self: boolean
 }
 
+interface AthleteXpTotalsRow {
+  athlete_id: string
+  total_xp: unknown
+}
+
+function readNonNegativeNumberOrNull(value: unknown): number | null {
+  if (typeof value === "number" && Number.isFinite(value)) {
+    return value >= 0 ? value : null
+  }
+
+  if (typeof value === "string") {
+    const parsed = Number.parseFloat(value)
+    if (Number.isFinite(parsed)) {
+      return parsed >= 0 ? parsed : null
+    }
+  }
+
+  return null
+}
+
 export async function GET(request: NextRequest) {
   const sessionOrResponse = await requireRoleFromRequest(request, ["USER"])
   if (sessionOrResponse instanceof NextResponse) {
@@ -86,19 +106,39 @@ export async function GET(request: NextRequest) {
     const athleteIds = Array.from(new Set(rows.map((row) => row.athlete_id).filter(Boolean)))
 
     const profileMap = new Map<string, AthleteProfileLookupRow>()
+    const athleteXpTotalsMap = new Map<string, number>()
     if (athleteIds.length > 0) {
-      const { data: profilesData, error: profilesError } = await adminClient
-        .from("profiles")
-        .select("id, gym_id, nickname, birth_date, gender")
-        .in("id", athleteIds)
+      const [
+        { data: profilesData, error: profilesError },
+        { data: athleteXpTotalsData, error: athleteXpTotalsError },
+      ] = await Promise.all([
+        adminClient.from("profiles").select("id, gym_id, nickname, birth_date, gender").in("id", athleteIds),
+        adminClient
+          .from("athlete_xp_totals")
+          .select("athlete_id, total_xp")
+          .eq("gym_id", authenticatedProfile.gym_id)
+          .in("athlete_id", athleteIds),
+      ])
 
       if (profilesError) {
         console.error("GET /api/client/rankings/global profiles query error:", profilesError)
         return NextResponse.json({ error: "Error al obtener perfiles del ranking" }, { status: 500 })
       }
 
+      if (athleteXpTotalsError) {
+        console.error("GET /api/client/rankings/global athlete_xp_totals query error:", athleteXpTotalsError)
+        return NextResponse.json({ error: "Error al obtener puntajes del ranking" }, { status: 500 })
+      }
+
       for (const profile of ((profilesData ?? []) as AthleteProfileLookupRow[])) {
         profileMap.set(profile.id, profile)
+      }
+
+      for (const totalsRow of ((athleteXpTotalsData ?? []) as AthleteXpTotalsRow[])) {
+        const totalXp = readNonNegativeNumberOrNull(totalsRow.total_xp)
+        if (totalXp !== null) {
+          athleteXpTotalsMap.set(totalsRow.athlete_id, totalXp)
+        }
       }
     }
 
@@ -121,7 +161,7 @@ export async function GET(request: NextRequest) {
         rank_position: normalizeRank(row.rank_position),
         previous_rank: normalizeRank(row.previous_rank),
         nickname: normalizeNickname(profile?.nickname),
-        global_score: normalizeNumber(row.global_score),
+        global_score: athleteXpTotalsMap.get(row.athlete_id) ?? normalizeNumber(row.global_score),
         diversity_factor: normalizeNumber(row.diversity_factor),
         score_upper: normalizeNumber(row.score_upper),
         score_lower: normalizeNumber(row.score_lower),
@@ -154,4 +194,3 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: message }, { status })
   }
 }
-

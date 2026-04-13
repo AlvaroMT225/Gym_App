@@ -42,6 +42,38 @@ interface RegionalLeaderboardEntry {
   is_self: boolean
 }
 
+interface AthleteXpTotalsRow {
+  athlete_id: string
+  xp_by_region: unknown
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null
+}
+
+function readNonNegativeNumberOrNull(value: unknown): number | null {
+  if (typeof value === "number" && Number.isFinite(value)) {
+    return value >= 0 ? value : null
+  }
+
+  if (typeof value === "string") {
+    const parsed = Number.parseFloat(value)
+    if (Number.isFinite(parsed)) {
+      return parsed >= 0 ? parsed : null
+    }
+  }
+
+  return null
+}
+
+function readRegionScoreFromTotals(xpByRegion: unknown, region: "upper" | "lower"): number | null {
+  if (!isRecord(xpByRegion) || !(region in xpByRegion)) {
+    return null
+  }
+
+  return readNonNegativeNumberOrNull(xpByRegion[region])
+}
+
 export async function GET(request: NextRequest) {
   const sessionOrResponse = await requireRoleFromRequest(request, ["USER"])
   if (sessionOrResponse instanceof NextResponse) {
@@ -86,19 +118,39 @@ export async function GET(request: NextRequest) {
     const athleteIds = Array.from(new Set(rows.map((row) => row.athlete_id).filter(Boolean)))
 
     const profileMap = new Map<string, AthleteProfileLookupRow>()
+    const athleteRegionTotalsMap = new Map<string, number>()
     if (athleteIds.length > 0) {
-      const { data: profilesData, error: profilesError } = await adminClient
-        .from("profiles")
-        .select("id, gym_id, nickname, birth_date, gender")
-        .in("id", athleteIds)
+      const [
+        { data: profilesData, error: profilesError },
+        { data: athleteXpTotalsData, error: athleteXpTotalsError },
+      ] = await Promise.all([
+        adminClient.from("profiles").select("id, gym_id, nickname, birth_date, gender").in("id", athleteIds),
+        adminClient
+          .from("athlete_xp_totals")
+          .select("athlete_id, xp_by_region")
+          .eq("gym_id", authenticatedProfile.gym_id)
+          .in("athlete_id", athleteIds),
+      ])
 
       if (profilesError) {
         console.error("GET /api/client/rankings/regional profiles query error:", profilesError)
         return NextResponse.json({ error: "Error al obtener perfiles del ranking" }, { status: 500 })
       }
 
+      if (athleteXpTotalsError) {
+        console.error("GET /api/client/rankings/regional athlete_xp_totals query error:", athleteXpTotalsError)
+        return NextResponse.json({ error: "Error al obtener puntajes del ranking" }, { status: 500 })
+      }
+
       for (const profile of ((profilesData ?? []) as AthleteProfileLookupRow[])) {
         profileMap.set(profile.id, profile)
+      }
+
+      for (const totalsRow of ((athleteXpTotalsData ?? []) as AthleteXpTotalsRow[])) {
+        const regionalScore = readRegionScoreFromTotals(totalsRow.xp_by_region, region)
+        if (regionalScore !== null) {
+          athleteRegionTotalsMap.set(totalsRow.athlete_id, regionalScore)
+        }
       }
     }
 
@@ -121,7 +173,7 @@ export async function GET(request: NextRequest) {
         rank_position: normalizeRank(row.rank_position),
         previous_rank: normalizeRank(row.previous_rank),
         nickname: normalizeNickname(profile?.nickname),
-        final_score: normalizeNumber(row.final_score),
+        final_score: athleteRegionTotalsMap.get(row.athlete_id) ?? normalizeNumber(row.final_score),
         coverage_factor: normalizeNumber(row.coverage_factor),
         groups_trained: normalizeNumber(row.groups_trained),
         tendency: calculateTendency(row.previous_rank, row.rank_position),
