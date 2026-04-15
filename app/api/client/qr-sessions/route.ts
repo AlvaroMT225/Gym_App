@@ -81,6 +81,10 @@ interface FactorConstanciaResult {
   factorConstancia: number
 }
 
+interface ExerciseAttributionRow {
+  muscle_groups: unknown
+}
+
 type SupabaseClient = Awaited<ReturnType<typeof createClient>>
 type RankingRegion = "upper" | "lower"
 
@@ -95,6 +99,8 @@ const FC2_INCREMENT = 0.05
 const FC2_LOOKBACK_WEEKS = 16
 const DUPLICATE_WINDOW_MS = 5 * 60 * 1000
 const QR_EXERCISE_HISTORY_BATCH_SIZE = 50
+const UPPER_BODY_MUSCLE_GROUPS = new Set(["chest", "back", "shoulders", "biceps", "triceps", "arms"])
+const LOWER_BODY_MUSCLE_GROUPS = new Set(["legs", "glutes", "core"])
 const QR_WORKOUT_CONTEXT_BAD_REQUEST_MESSAGES = new Set([
   WORKOUT_CONTEXT_MACHINE_FALLBACK_NOT_FOUND_ERROR,
   WORKOUT_CONTEXT_MACHINE_FALLBACK_AMBIGUOUS_ERROR,
@@ -135,6 +141,40 @@ function toRegionLabel(region: RankingRegion | null): string | null {
     return "Tren Inferior"
   }
   return null
+}
+
+function readMuscleGroups(value: unknown): string[] {
+  if (!Array.isArray(value)) {
+    return []
+  }
+
+  return value.filter((entry): entry is string => typeof entry === "string" && entry.length > 0)
+}
+
+function deriveExerciseAttribution(muscleGroups: string[]): {
+  region: RankingRegion | ""
+  primaryMuscleGroup: string | null
+} {
+  for (const group of muscleGroups) {
+    if (UPPER_BODY_MUSCLE_GROUPS.has(group)) {
+      return {
+        region: "upper",
+        primaryMuscleGroup: group,
+      }
+    }
+
+    if (LOWER_BODY_MUSCLE_GROUPS.has(group)) {
+      return {
+        region: "lower",
+        primaryMuscleGroup: group,
+      }
+    }
+  }
+
+  return {
+    region: "",
+    primaryMuscleGroup: null,
+  }
 }
 
 async function getRegionalRankPosition(
@@ -754,7 +794,7 @@ export async function POST(request: NextRequest) {
 
     const { data: machine, error: machineError } = await supabase
       .from("machines")
-      .select("region, primary_muscle_group, max_weight_limit")
+      .select("max_weight_limit")
       .eq("id", machine_id)
       .single()
 
@@ -798,9 +838,21 @@ export async function POST(request: NextRequest) {
       referenceDateIso: requestTimestamp,
     })
 
-    const region = typeof machine.region === "string" ? machine.region : ""
-    const primaryMuscleGroup =
-      typeof machine.primary_muscle_group === "string" ? machine.primary_muscle_group : null
+    const { data: exerciseAttributionRow, error: exerciseAttributionError } = await supabase
+      .from("exercises")
+      .select("muscle_groups")
+      .eq("id", workoutContext.exerciseId)
+      .maybeSingle()
+
+    if (exerciseAttributionError) {
+      throw exerciseAttributionError
+    }
+
+    const exerciseAttribution = deriveExerciseAttribution(
+      readMuscleGroups((exerciseAttributionRow as ExerciseAttributionRow | null)?.muscle_groups)
+    )
+    const region = exerciseAttribution.region
+    const primaryMuscleGroup = exerciseAttribution.primaryMuscleGroup
 
     const recentSessions = await getRecentQrSessionsForResolvedExercise({
       supabase,
