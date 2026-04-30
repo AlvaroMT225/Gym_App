@@ -936,6 +936,8 @@ export async function POST(request: NextRequest) {
       throw insertError ?? new Error("No se pudo guardar la sesión QR.")
     }
 
+    const adminClient = createAdminClient()
+
     const parentSession = await appendInteractionToWorkoutSession({
       supabase,
       athleteId,
@@ -960,13 +962,15 @@ export async function POST(request: NextRequest) {
     }
 
     if (!guidedParentSession) {
-      const { error: parentLinkError } = await supabase
+      const { data: parentLinkRow, error: parentLinkError } = await adminClient
         .from("qr_sessions")
         .update({ workout_session_id: parentSession.workoutSessionId })
         .eq("id", insertedQrSession.id)
+        .select("id")
+        .single()
 
-      if (parentLinkError) {
-        throw parentLinkError
+      if (parentLinkError || !parentLinkRow) {
+        throw parentLinkError ?? new Error("No se pudo vincular la sesion QR con el entrenamiento.")
       }
     }
 
@@ -980,7 +984,7 @@ export async function POST(request: NextRequest) {
       CANONICAL_KG_DECIMALS
     )
 
-    const { error: updateQrSessionMetricsError } = await supabase
+    const { data: updatedQrSessionMetrics, error: updateQrSessionMetricsError } = await adminClient
       .from("qr_sessions")
       .update({
         factor_constancia: factorConstancia,
@@ -988,9 +992,11 @@ export async function POST(request: NextRequest) {
         session_xp: sessionXp,
       })
       .eq("id", insertedQrSession.id)
+      .select("id")
+      .single()
 
-    if (updateQrSessionMetricsError) {
-      throw updateQrSessionMetricsError
+    if (updateQrSessionMetricsError || !updatedQrSessionMetrics) {
+      throw updateQrSessionMetricsError ?? new Error("No se pudo actualizar el XP de la sesion QR.")
     }
 
     const { data: currentXp, error: currentXpError } = await supabase
@@ -1090,7 +1096,6 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    const adminClient = createAdminClient()
     await syncUserStatsForProfile({
       profileId: athleteId,
       syncTimestampIso: insertedQrSession.created_at,
