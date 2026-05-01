@@ -83,6 +83,14 @@ function logRedeemFailure(context: string, error: RpcErrorLike | null) {
   })
 }
 
+function describeRedeemResult(value: unknown) {
+  if (Array.isArray(value)) {
+    return { type: "array", length: value.length }
+  }
+
+  return { type: value === null ? "null" : typeof value }
+}
+
 function normalizeRedeemResult(
   value: RedeemPromotionResult[] | RedeemPromotionResult | null
 ): RedeemPromotionResult | null {
@@ -192,7 +200,10 @@ export async function POST(
     )
 
     if (!redeemed) {
-      console.error("POST /api/client/promotions/[id]/redeem invalid rpc result:", data)
+      console.error(
+        "POST /api/client/promotions/[id]/redeem invalid rpc result:",
+        describeRedeemResult(data)
+      )
       return NextResponse.json(
         {
           error: "Error al canjear promocion",

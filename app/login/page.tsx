@@ -11,10 +11,12 @@ import { Badge } from "@/components/ui/badge"
 import { useAuth } from "@/lib/auth/auth-context"
 
 const DEMO_ACCOUNTS = [
-  { label: "Administrador", email: "admin@minthy.demo", password: "Admin123!", role: "admin" as const },
-  { label: "Entrenador", email: "coach@minthy.demo", password: "Coach123!", role: "coach" as const },
-  { label: "Atleta", email: "atleta@minthy.demo", password: "Atleta123!", role: "athlete" as const },
+  { label: "Administrador", email: "admin@minthy.demo", role: "admin" as const },
+  { label: "Entrenador", email: "coach@minthy.demo", role: "coach" as const },
+  { label: "Atleta", email: "atleta@minthy.demo", role: "athlete" as const },
 ]
+
+const DEMO_PASSWORD_NOTICE = "Configurar en entorno seguro"
 
 const ROLE_LABELS: Record<string, string> = {
   admin: "Admin",
@@ -39,14 +41,10 @@ export default function LoginPage() {
     setLoading(false)
   }
 
-  const handleDemoLogin = async (demo: (typeof DEMO_ACCOUNTS)[0]) => {
+  const handleDemoAccountSelect = (demo: (typeof DEMO_ACCOUNTS)[0]) => {
     setEmail(demo.email)
-    setPassword(demo.password)
+    setPassword("")
     setError("")
-    setLoading(true)
-    const result = await signIn(demo.email, demo.password)
-    if (result.error) setError(result.error)
-    setLoading(false)
   }
 
   return (
@@ -137,13 +135,13 @@ export default function LoginPage() {
               <button
                 key={demo.email}
                 type="button"
-                onClick={() => handleDemoLogin(demo)}
+                onClick={() => handleDemoAccountSelect(demo)}
                 disabled={loading}
                 className="flex items-center justify-between px-3 py-2.5 bg-background rounded-lg hover:bg-muted transition-colors text-left"
               >
                 <div>
                   <p className="text-sm font-medium text-foreground">{demo.email}</p>
-                  <p className="text-xs text-muted-foreground">{demo.password}</p>
+                  <p className="text-xs text-muted-foreground">{DEMO_PASSWORD_NOTICE}</p>
                 </div>
                 <Badge className="bg-primary/10 text-primary border-0 text-xs">
                   {ROLE_LABELS[demo.role]}
