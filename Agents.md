@@ -1,248 +1,240 @@
-# Agents.md — Minthy Training
+# Agents.md — Minthy Training Backend
 
-Last updated: 2026-03-13
-Owner-confirmed status through: Fase 2 -> Sub-fase 2.5 -> Tarea 6 closed.
+Last updated: 2026-05-01
+Workspace: `C:\Users\USUARIO\Documents\AuT_IA\Gym_App\update-minthy-trainingV1`
+Scope: Backend/API only — Next.js App Router + TypeScript + Supabase + Vercel.
 
-## 1) Purpose of this file
-This file is an operational context guide for Codex/Chat when working inside the Minthy Training repositories.
-It is **not** the primary project handoff.
+## 1) Purpose
+This file is the compact operational guide for Codex/Chat when working in the backend workspace.
+It is not a full handoff and must not become a changelog.
+Use it to avoid wrong deploy targets, mixed workspaces, stale phase assumptions, unsafe DB changes, and broad refactors.
 
-Use this file to understand:
-- what the project is,
-- which repository is being edited,
-- which phase/task is active,
-- which constraints are mandatory,
-- how to work without inventing flows.
+## 2) Current project reality
+- Product: Minthy Training / IA_GYM, gym training platform with Athlete, Coach, and Admin roles.
+- Fase 0: completed — architecture and database.
+- Fase 1: completed — real backend in Next.js + Supabase.
+- Fase 2: completed — mobile app structure in Expo/React Native.
+- Fase 3: completed functionally — Athlete core modules implemented.
+- Current front: QA closure for Athlete before starting Fase 4 Coach mobile panel.
+- Next major phase after QA: Fase 4 — Coach mobile panel.
+- Handoff v15 exists but is partially stale; current prompt + validated runtime evidence override old handoff status.
 
-## 2) Document hierarchy (mandatory)
-When there is any conflict, follow this priority order:
-
-1. **Handoff_MinthyTraining_v9.docx** → source of truth for roadmap, functional scope, and phase/task status.
-2. **Agents.md** → operational context for Codex/Chat.
-3. **Current prompt** → task-specific execution constraints.
-
-Do **not** let Agents.md override the handoff.
-If Agents.md is stale, update it after the task is truly validated.
-
-## 3) Project snapshot
-Minthy Training is a gym/training platform with:
-- a **web app / backend** in Next.js,
-- a **mobile app** in Expo / React Native,
-- Supabase as database/auth backend,
-- role-based product logic for athlete, coach, and admin.
-
-The mobile app consumes the real backend. It does **not** duplicate backend logic.
-
-User-facing language must remain **Spanish**.
-The athlete-facing UI must stay clean and product-oriented.
-Do **not** expose internal technical identifiers to athletes unless explicitly required.
-
-## 4) Repositories / workspace roots
-
-### A) Web / backend repository
-Workspace root:
+## 3) Repository boundary
+Backend workspace:
 `C:\Users\USUARIO\Documents\AuT_IA\Gym_App\update-minthy-trainingV1`
 
-Use this repository for:
-- Next.js app/router work,
-- API routes,
-- SSR/auth guards,
-- Supabase server-side integration,
-- web panels and web logic.
-
-### B) Mobile repository
-Workspace root:
+Mobile workspace:
 `C:\Users\USUARIO\Documents\AuT_IA\Gym_App\minthy-mobile`
 
-Use this repository for:
-- Expo / React Native screens,
-- expo-router routes,
-- mobile UI,
-- QR scanner flow,
-- local mobile state,
-- mobile integration with the real backend.
+Rules:
+- One prompt = one workspace.
+- Backend tasks must not edit `minthy-mobile`.
+- Mobile tasks must not edit backend unless explicitly instructed in a separate backend prompt.
+- Never mix backend and mobile fixes in one commit.
 
-## 5) Core product rules
-- Athlete flow must feel fast, clear, and production-oriented.
-- Mobile UX is **mobile-first**, not a compressed copy of web cards.
-- Keep a clean hierarchy, compact controls, and low friction.
-- Do not redesign screens unless the task explicitly requires it.
-- Do not invent new product flows, new backend behavior, or speculative features.
+## 4) Stack and production target
+Backend stack:
+- Next.js App Router
+- TypeScript
+- Supabase Auth / PostgreSQL / RLS / Storage / RPC
+- Vercel production deploy
 
-## 6) Current project status
+Valid backend production target:
+- Vercel project: `minthy-training`
+- Production URL: `https://minthy-training.vercel.app`
 
-### Fase 2 — Expo app
-- Sub-fase 2.1: complete
-- Sub-fase 2.2: complete
-- Sub-fase 2.3: complete
-- Sub-fase 2.4: complete
-- Sub-fase 2.5: active
+Forbidden for backend deploy:
+- `minthy-gym`
+- any frontend/web/mobile Vercel project not named `minthy-training`
 
-### Sub-fase 2.5 — QR Scanner Real
-Confirmed status:
-- Tarea 1: complete
-- Tarea 2: complete
-- Tarea 3: complete
-- Tarea 4: complete
-- Tarea 5: complete
-- Tarea 6: complete
-- Tarea 7: complete
-- Tarea 8: pending
+Backend deploy rule:
+- Deploy only when strictly required.
+- Prefer Git push auto-deploy to Vercel.
+- Always verify Vercel `READY` and production alias `CURRENT`.
+- If Vercel shows staged/old/current mismatch, stop and report.
 
-## 7) Sub-fase 2.5 current reality
-The intended QR mobile flow is:
+## 5) Supabase public context
+Allowed public identifiers:
+- Supabase project_id: `wwhginemtslpjolcfggx`
+- Gym ID: `a1b2c3d4-0001-0001-0001-000000000001`
+- Test athlete email: `test@minthy.com`
+- Test athlete userId: `4c21af62-98c4-4eef-bcef-d2fb50994257`
+- Test athlete nickname: `Malvis`
 
-Open app → Máquinas → Escanear QR → resolve machine → open machine page → register 3–4 sets → finish session → XP modal.
+Do not place secrets in this file or in prompts:
+- no service_role key
+- no anon key unless explicitly required and already public in env docs
+- no JWT
+- no refresh token
+- no access token
+- no Authorization header value
+- no passwords
+- no Vercel token
+- no Expo/EAS token
 
-### Already confirmed complete through Tarea 6
-#### QR resolution
-- The QR resolver endpoint issue was fixed in Vercel after adding the missing Supabase server credential and redeploying.
-- The machine QR flow already resolves correctly and opens the machine page.
+## 6) Core backend domains
+Primary athlete/backend domains:
+- auth/session/profile
+- onboarding profile fields
+- QR sessions
+- workout_sessions / session_machines / workout_sets
+- qr_sessions
+- athlete_xp_totals
+- global_rankings / regional_rankings
+- achievements / user_achievements
+- challenges / user_challenges
+- routines / routine exercises / history
+- tutorials and tutorial progress
+- promotions / user_promotions
+- payments / memberships
+- body_weight_logs
+- avatar Storage bucket
 
-#### Mobile auth for machine detail
-- The machine detail backend now accepts mobile auth via `Authorization: Bearer <jwt>` in addition to web cookie-based auth.
-- The mobile machine page already loads real data.
+## 7) QR and scoring rules
+QR is competitive and must remain the trusted training path.
+QR identifies the machine/context, not the user.
+User identity comes from authenticated session/JWT.
 
-#### Tarea 5 — Machine page mobile
-Tarea 5 is considered closed based on owner-confirmed runtime validation.
-The machine page already includes:
-- machine name,
-- muscle group information,
-- local set registration with weight / reps / RPE,
-- current local session,
-- automatic rest timer after saving a set,
-- rest lock during countdown,
-- PR block,
-- recent history,
-- compact mobile-first layout.
+Scoring model:
+- total_volume = sum(weight * reps)
+- FP rewards relative progress, not only raw volume.
+- FC2 rewards weekly consistency.
+- session_xp must persist in `qr_sessions.session_xp`.
+- global/regional rankings must use persisted QR metrics, not only response payloads.
+- manual or non-QR paths must not silently enter competitive scoring.
 
-Confirmed local timer/alarm refinements already working:
-- selectable rest alert tones,
-- tone preview without starting the timer,
-- alert-mode selector with icons instead of letters,
-- real rest-finished alert still works,
-- silence still works.
+DATA-04 hotfix context:
+- Commit: `4b2af70`
+- Message: `fix(qr): persist session xp before ranking recalculation`
+- File: `app/api/client/qr-sessions/route.ts`
+- Root issue fixed locally: API returned positive `session_xp`, but persisted `qr_sessions.session_xp` could remain zero.
+- Current required closure unless already proven complete: confirm Vercel `READY/CURRENT` and production DATA-04 verification on `minthy-training.vercel.app`.
 
-### Important scope boundary
-Tarea 5 was local/UI behavior only.
-Tarea 6 already closed the real session + XP flow.
-Block 3 kg/lb backend support is already implemented on the backend side.
-Task 7 deep-link QR payload generation is already validated.
-Current web/backend work is Task 8 fallback without camera using a non-competitive manual path.
+## 8) Current QA status
+Fase 3 Athlete QA is the active gate before Fase 4.
+QA plan platform: Android physical device.
+Already completed before current QA front:
+- Auth base flows mostly PASS.
+- Onboarding base persistence PASS.
+- Home base data and QR update previously PASS.
 
-## 8) Active task now: Task 8 - Fallback sin cámara
-Functional scope:
-- create a backend-only manual fallback path when camera/permissions are unavailable,
-- persist manual sessions in `manual_training_sessions`, separate from competitive QR sessions,
-- ensure manual sessions remain history-only with no XP, rankings, achievements, badges, or similar side effects,
-- reuse the existing machine/exercise dataset without inventing new catalog content,
-- avoid touching mobile, QR generation, or competitive QR backend logic.
+Backend-internal QA priority:
+- DATA-01 profile persistence
+- DATA-02 avatar Storage/profile avatar_url
+- DATA-03 QR session persistence
+- DATA-04 XP/ranking persistence after QR
+- DATA-05 promotion redemption persistence
+- DATA-06 body weight persistence
+- SEC-01 RLS/authorization isolation
+- SEC-03 no sensitive logs
 
-### Task 8 must respect
-- backend/web repo only,
-- no mobile changes in this task,
-- no changes to Task 6 session/XP logic,
-- no changes to Task 7 QR/deep-link behavior,
-- no changes to Block 3 kg/lb competitive persistence,
-- no hidden bridge from manual sessions into competitive rewards or rankings.
+Do not mark mobile/device-only tests as backend PASS.
+Use statuses:
+- PASS_TECH
+- PASS_TECH_PROD
+- FAIL
+- BLOCKED_ENV
+- NEEDS_DEVICE_CONFIRMATION
 
-### Current backend reality
-- competitive QR sessions still write through `qr_sessions` and feed XP/rankings,
-- manual fallback sessions must write through a separate non-competitive table/path,
-- legacy manual writes through `workout_sessions` are not acceptable for the new fallback design,
-- Task 8 backend work is not enough to close the task until the mobile fallback flow is runtime-validated.
+## 9) Security and Supabase MCP rules
+Default DB behavior during SCAN: SELECT-only.
+Any INSERT/UPDATE/DELETE requires explicit task need.
+For write tests:
+- use QA markers, e.g. `QA_CODEX_YYYYMMDD_HHMMSS`
+- snapshot before modifying
+- clean up QA records when safe
+- never alter real athlete data without explicit instruction
+- never use destructive SQL broadly
+- never disable RLS casually
+- never bypass RLS unless verifying server-owned backend behavior and reporting why
 
-## 9) Required working method
-Always follow:
+Security checks should include:
+- cross-user access prevention
+- role checks
+- RLS behavior
+- token handling
+- sensitive logs
+- Storage path ownership
+- QR/ranking anti-fraud assumptions
+
+## 10) Mandatory methodology
+Always follow SCAN -> PATCH -> VERIFY -> DEPLOY only if necessary.
 
 ### SCAN
-- inspect existing files first,
-- identify real current behavior,
-- state exact scope,
-- confirm what must **not** be touched.
+- inspect current files before editing
+- identify exact routes, tables, and auth context
+- report file paths and line numbers
+- state scope and exclusions
+- identify existing unrelated dirty files
 
 ### PATCH
-- apply the smallest correct change,
-- stay within the task boundary,
-- avoid opportunistic refactors,
-- do not touch unrelated flows.
+- minimal change only
+- no opportunistic refactor
+- no schema change unless strictly required
+- no UI change from backend tasks
+- explain root cause before patching
 
 ### VERIFY
-- run technical checks,
-- report exact files modified,
-- describe manual validation steps,
-- do not declare completion without runtime validation.
+- run strongest reasonable commands
+- report exact command output summary
+- separate new errors from known unrelated errors
+- verify API/DB behavior with evidence when relevant
 
-## 10) Mandatory prompt discipline for Codex/Chat
-For every new task, especially in a new chat, the assistant must:
-- read `Agents.md` first,
-- use `Handoff_MinthyTraining_v9.docx` as source of truth,
-- work on **one task at a time**,
-- explicitly list files to inspect first,
-- explicitly list what must not be changed,
-- end with manual validation requirements.
+### DEPLOY
+- backend only
+- only to Vercel project `minthy-training`
+- verify `READY` and `CURRENT`
+- run production-safe post-deploy check when the patch affects runtime behavior
 
-Recommended instruction line for prompts:
+## 11) Verification commands
+Preferred backend commands:
+- `npm.cmd run build`
+- `npx.cmd tsc --noEmit`
+- `npm.cmd run lint` only if the script is valid for the current Next.js version
 
-`Read Agents.md first. Use Handoff_MinthyTraining_v9.docx as source of truth. Follow SCAN -> PATCH -> VERIFY only.`
+Known issues from recent QA context:
+- `npm run lint` may be stale if it invokes deprecated `next lint` behavior.
+- `npx tsc --noEmit` may fail with pre-existing unrelated errors:
+  - `app/api/admin/settings/route.ts(215,68)`
+  - `app/api/client/routines/history/route.ts(66,13)`
+- Do not hide these errors; report whether they block the target task.
 
-## 11) Mobile coding rules that must remain in force
-- Keep visible UI text in Spanish.
-- Avoid unnecessary layout churn.
-- Use compact and professional controls.
-- Be careful with React Native input behavior.
-- Preserve existing working flows unless the task explicitly requires modifying them.
-- If a task is mobile-only, do not modify backend files.
-- If a task depends on backend contract verification, inspect the web/backend repository before patching mobile assumptions.
+## 12) Commit rules
+Before commit:
+- run `git status`
+- show intended diff
+- exclude unrelated dirty files
+- never commit `next-env.d.ts`
+- never commit `tsconfig.tsbuildinfo`
+- never commit `.env*` or secret files
 
-## 12) Verification standard
-A task is not truly closed just because TypeScript or lint pass.
-A task is only considered closed when both are satisfied:
-- code checks pass,
-- runtime/manual validation confirms expected behavior.
+Commit only files in scope.
+Use precise commit messages.
+Do not push if verification reveals target-file errors.
 
-Whenever applicable, require evidence such as:
-- screenshots,
-- short runtime confirmations,
-- endpoint response validation,
-- UX-state confirmation for success/error paths.
+## 13) Tooling guidance
+Useful tools/skills:
+- Vercel: deploy verification, logs, READY/CURRENT confirmation.
+- Supabase: SELECT/QA writes/RLS/Storage verification; treat as production-capable.
+- Codex Security: scan auth, RLS, logs, secrets, attack paths.
 
-## 13) Known confirmed truths that must not be forgotten
-- Mobile uses the real backend.
-- QR resolution already works.
-- Machine detail already works with Bearer auth.
-- Tarea 5 is already validated and should not be reopened unless a regression appears.
-- The backend now supports unit-aware qr session persistence with canonical kg normalization.
-- Task 7 deep linking is already validated.
-- Task 8 must keep manual sessions non-competitive and history-only.
+All tool output must be summarized with evidence, not vague statements.
 
-## 14) When to update this file
-Update `Agents.md` only when one of these happens:
-- a task is fully validated and closed,
-- the active task changes,
-- a core flow changes,
-- a critical incident is resolved and changes operational reality.
+## 14) What this file must not contain
+- no secrets
+- no long changelog
+- no obsolete task states
+- no speculative roadmap
+- no copied full handoff
+- no user passwords
+- no raw auth headers
 
-Do **not** update this file for every micro-patch.
-Do **not** turn this file into a changelog.
-Keep it concise, factual, and current.
-
-## 15) What this file should never become
-- not a full handoff replacement,
-- not a long changelog,
-- not a speculative roadmap,
-- not a place for unverified assumptions,
-- not a place for outdated task states.
-
-## 16) Immediate next execution context
-If working **right now**, assume:
-- repository may be either web/backend or mobile, so verify workspace first,
-- backend now accepts unit-aware QR session sets through `POST /api/client/qr-sessions`,
-- admin-generated machine QR payloads should now target `minthytraining://machine/{machine.id}`,
-- native external QR scan is already validated for Task 7,
-- manual fallback backend work must use `manual_training_sessions` and never enter the competitive QR pipeline,
-- next mobile work should consume the new `weight_unit` contract and the `history` payload returned by `GET /api/machines/[machineId]`,
-- Tarea 5 and Tarea 6 should stay untouched unless Block 3 integration reveals a direct regression.
-
-
-
+## 15) Immediate next backend action
+Unless already completed and evidenced:
+1. Verify Vercel project `minthy-training` is `READY/CURRENT` for commit `4b2af70` or newer deployment containing it.
+2. Run production-safe DATA-04 verification:
+   - QR API response `session_xp > 0`
+   - persisted `qr_sessions.session_xp > 0`
+   - `global_rankings.global_score` numeric
+   - `rank_position` valid
+3. Then continue broader Athlete QA support before Fase 4.
