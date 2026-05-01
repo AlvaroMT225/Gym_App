@@ -36,7 +36,7 @@ export async function POST(request: NextRequest) {
       const isInvalidCredentials = verificationError.message.includes("Invalid login credentials")
 
       if (isInvalidCredentials) {
-        return NextResponse.json({ error: "La contraseña actual es incorrecta" }, { status: 401 })
+        return NextResponse.json({ error: "La contraseña actual es incorrecta" }, { status: 400 })
       }
 
       console.error("POST /api/client/auth/change-password verification error:", verificationError)
