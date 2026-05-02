@@ -22,6 +22,8 @@ interface RoutineRef {
 interface WorkoutSessionRow {
   id: string
   routine_id: string | null
+  session_type: string | null
+  source_flow: string | null
   started_at: string
   ended_at: string | null
   duration_minutes: number | null
@@ -63,7 +65,7 @@ function extractPrFromSets(setsData: unknown): {
     if (isBetter) {
       const hasOriginal = s.entered_weight_unit === "lb" || s.entered_weight_unit === "kg"
       const displayUnit: "kg" | "lb" = hasOriginal ? (s.entered_weight_unit as "kg" | "lb") : "kg"
-      const displayWeight =
+      const displayWeight: number =
         hasOriginal && typeof s.entered_weight === "number" && s.entered_weight > 0
           ? s.entered_weight
           : weightKg
@@ -119,6 +121,8 @@ export async function GET(request: NextRequest) {
           `
           id,
           routine_id,
+          session_type,
+          source_flow,
           started_at,
           ended_at,
           duration_minutes,
@@ -135,6 +139,7 @@ export async function GET(request: NextRequest) {
         )
         .eq("profile_id", userId)
         .eq("status", "completed")
+        .not("routine_id", "is", null)
         .order("started_at", { ascending: false })
         .range(offset, offset + limit - 1),
       supabase
@@ -159,8 +164,7 @@ export async function GET(request: NextRequest) {
 
     const history = ((sessionsResult.data ?? []) as WorkoutSessionRow[]).map((session) => {
       const routine = resolveSingle(session.routine)
-      const routineName =
-        session.routine_id && routine?.name ? routine.name : "Entrenamiento Libre"
+      const routineName = routine?.name ?? "Rutina completada"
 
       const durationMinutes =
         typeof session.duration_minutes === "number" && session.duration_minutes > 0
@@ -193,10 +197,16 @@ export async function GET(request: NextRequest) {
       return {
         id: session.id,
         routineId: session.routine_id ?? null,
+        routine_id: session.routine_id,
+        session_type: "routine",
+        source_flow: "routine",
+        workoutSessionType: session.session_type,
+        workoutSourceFlow: session.source_flow,
         routineName,
         startedAt: session.started_at,
         completedAt: session.ended_at ?? session.started_at,
         durationMinutes,
+        exerciseCount: exercises.length,
         totalXp,
         exercises,
       }
