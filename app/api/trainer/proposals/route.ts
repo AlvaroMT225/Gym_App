@@ -14,6 +14,32 @@ export async function GET(request: NextRequest) {
   const supabase = await createClient()
   const { searchParams } = new URL(request.url)
   const { limit, offset } = paginationParams(searchParams)
+  const nowIso = new Date().toISOString()
+
+  const { data: validConsentsData, error: validConsentsError } = await supabase
+    .from("consents")
+    .select("athlete_id")
+    .eq("coach_id", trainerId)
+    .eq("status", "active")
+    .is("revoked_at", null)
+    .not("is_hidden_by_athlete", "is", true)
+    .or(`expires_at.is.null,expires_at.gt.${nowIso}`)
+
+  if (validConsentsError) {
+    console.error("Error fetching proposal consents:", validConsentsError)
+    return NextResponse.json({ error: "Error interno del servidor" }, { status: 500 })
+  }
+
+  const validAthleteIds = Array.from(
+    new Set((validConsentsData ?? []).map((consent: any) => consent.athlete_id).filter(Boolean))
+  ) as string[]
+
+  if (validAthleteIds.length === 0) {
+    return NextResponse.json(
+      { proposals: [], total: 0, limit, offset },
+      { headers: { "X-Total-Count": "0" } }
+    )
+  }
 
   const { data: proposalsData, count, error } = await supabase
     .from("proposals")
@@ -31,6 +57,7 @@ export async function GET(request: NextRequest) {
       )
     `, { count: "exact", head: false })
     .eq("coach_id", trainerId)
+    .in("athlete_id", validAthleteIds)
     .order("updated_at", { ascending: false })
     .range(offset, offset + limit - 1)
 

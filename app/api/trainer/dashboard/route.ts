@@ -12,6 +12,7 @@ export async function GET(request: NextRequest) {
     const supabase = await createClient()
     const now = new Date()
     const sevenDaysLater = new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000)
+    const nowIso = now.toISOString()
 
     // Compute current week bounds (Monday–Sunday) as YYYY-MM-DD for DATE column
     const weekStart = new Date(now)
@@ -35,7 +36,10 @@ export async function GET(request: NextRequest) {
         .from("consents")
         .select("*", { count: "exact", head: true })
         .eq("coach_id", coachId)
-        .eq("status", "active"),
+        .eq("status", "active")
+        .is("revoked_at", null)
+        .not("is_hidden_by_athlete", "is", true)
+        .or(`expires_at.is.null,expires_at.gt.${nowIso}`),
 
       // 2. Pending proposals — sent but not yet accepted/rejected
       supabase
@@ -50,7 +54,9 @@ export async function GET(request: NextRequest) {
         .select("*", { count: "exact", head: true })
         .eq("coach_id", coachId)
         .eq("status", "active")
-        .gte("expires_at", now.toISOString())
+        .is("revoked_at", null)
+        .not("is_hidden_by_athlete", "is", true)
+        .gte("expires_at", nowIso)
         .lte("expires_at", sevenDaysLater.toISOString()),
 
       // 4. Calendar events this week

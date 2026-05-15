@@ -53,29 +53,57 @@ export async function GET(request: NextRequest) {
     const nowIso = now.toISOString()
     const weekEndIso = weekEnd.toISOString()
 
-    // Parallel: planned sessions + calendar events for next 7 days
+    const { data: validConsentsData, error: validConsentsError } = await supabase
+      .from("consents")
+      .select("athlete_id")
+      .eq("coach_id", coachId)
+      .eq("status", "active")
+      .is("revoked_at", null)
+      .not("is_hidden_by_athlete", "is", true)
+      .or(`expires_at.is.null,expires_at.gt.${nowIso}`)
+
+    if (validConsentsError) {
+      console.error("GET /api/trainer/calendar consents error:", validConsentsError)
+      return NextResponse.json({ error: "Error al obtener calendario" }, { status: 500 })
+    }
+
+    const validAthleteIds = Array.from(
+      new Set((validConsentsData ?? []).map((consent: any) => consent.athlete_id).filter(Boolean))
+    ) as string[]
+
+    const sessionsPromise =
+      validAthleteIds.length > 0
+        ? supabase
+            .from("planned_sessions")
+            .select(
+              "id, title, scheduled_at, content, athlete:profiles!athlete_id(id, first_name, last_name)"
+            )
+            .eq("coach_id", coachId)
+            .in("athlete_id", validAthleteIds)
+            .not("scheduled_at", "is", null)
+            .gte("scheduled_at", nowIso)
+            .lt("scheduled_at", weekEndIso)
+            .order("scheduled_at", { ascending: true })
+        : Promise.resolve({ data: [], error: null })
+
+    let eventsQuery = supabase
+      .from("coach_calendar_events")
+      .select(
+        "id, title, event_date, start_time, event_type, athlete:profiles!athlete_id(id, first_name, last_name)"
+      )
+      .eq("coach_id", coachId)
+      .gte("event_date", nowDate)
+      .lt("event_date", weekEndDate)
+
+    eventsQuery =
+      validAthleteIds.length > 0
+        ? eventsQuery.or(`athlete_id.is.null,athlete_id.in.(${validAthleteIds.join(",")})`)
+        : eventsQuery.is("athlete_id", null)
+
     const [{ data: sessionsData, error: sessionsError }, { data: eventsData, error: eventsError }] =
       await Promise.all([
-        supabase
-          .from("planned_sessions")
-          .select(
-            "id, title, scheduled_at, content, athlete:profiles!athlete_id(id, first_name, last_name)"
-          )
-          .eq("coach_id", coachId)
-          .not("scheduled_at", "is", null)
-          .gte("scheduled_at", nowIso)
-          .lt("scheduled_at", weekEndIso)
-          .order("scheduled_at", { ascending: true }),
-
-        supabase
-          .from("coach_calendar_events")
-          .select(
-            "id, title, event_date, start_time, event_type, athlete:profiles!athlete_id(id, first_name, last_name)"
-          )
-          .eq("coach_id", coachId)
-          .gte("event_date", nowDate)
-          .lt("event_date", weekEndDate)
-          .order("event_date", { ascending: true }),
+        sessionsPromise,
+        eventsQuery.order("event_date", { ascending: true }),
       ])
 
     if (sessionsError) {

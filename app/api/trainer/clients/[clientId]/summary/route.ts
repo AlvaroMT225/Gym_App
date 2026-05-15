@@ -14,13 +14,17 @@ export async function GET(
 
   try {
     const supabase = await createClient()
+    const nowIso = new Date().toISOString()
 
     const { data, error } = await supabase
       .from("consents")
-      .select("id, scope, expires_at, status, athlete:athlete_id(id, first_name, last_name, avatar_url, created_at)")
+      .select("id, scope, expires_at, status, revoked_at, is_hidden_by_athlete, athlete:athlete_id(id, first_name, last_name, avatar_url, created_at)")
       .eq("coach_id", coachId)
       .eq("athlete_id", clientId)
       .eq("status", "active")
+      .is("revoked_at", null)
+      .not("is_hidden_by_athlete", "is", true)
+      .or(`expires_at.is.null,expires_at.gt.${nowIso}`)
       .single()
 
     if (error || !data) {

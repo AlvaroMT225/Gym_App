@@ -12,9 +12,52 @@ export type DbConsentScope =
 
 export interface ConsentResult {
   id: string
-  scope: string[]
+  scope: unknown
   expires_at: string | null
   status: string
+  revoked_at: string | null
+  is_hidden_by_athlete: boolean | null
+}
+
+function consentError() {
+  return { error: NextResponse.json({ error: "Consentimiento invalido" }, { status: 403 }) }
+}
+
+function scopeError() {
+  return { error: NextResponse.json({ error: "Scope no permitido" }, { status: 403 }) }
+}
+
+function normalizeConsentScopes(scope: unknown): string[] {
+  if (Array.isArray(scope)) {
+    return scope.filter((item): item is string => typeof item === "string")
+  }
+
+  if (typeof scope === "string") {
+    return scope
+      .split(",")
+      .map((item) => item.trim())
+      .filter(Boolean)
+  }
+
+  return []
+}
+
+export function isActiveConsent(consent: ConsentResult, now = new Date()): boolean {
+  if (consent.status !== "active") return false
+  if (consent.revoked_at) return false
+  if (consent.is_hidden_by_athlete) return false
+
+  if (!consent.expires_at) return true
+
+  const expiresAt = new Date(consent.expires_at)
+  if (Number.isNaN(expiresAt.getTime())) return false
+
+  return expiresAt > now
+}
+
+export function hasConsentScope(consent: ConsentResult, requiredScope: DbConsentScope): boolean {
+  const scopes = normalizeConsentScopes(consent.scope)
+  return scopes.includes("full_access") || scopes.includes(requiredScope)
 }
 
 /**
@@ -24,21 +67,40 @@ export interface ConsentResult {
 export async function requireActiveConsent(
   supabase: SupabaseClient,
   coachId: string,
-  athleteId: string
+  athleteId: string,
+  requiredScope?: DbConsentScope
 ): Promise<{ consent: ConsentResult } | { error: NextResponse }> {
   const { data, error } = await supabase
     .from("consents")
-    .select("id, scope, expires_at, status")
+    .select("id, scope, expires_at, status, revoked_at, is_hidden_by_athlete")
     .eq("coach_id", coachId)
     .eq("athlete_id", athleteId)
     .eq("status", "active")
-    .single()
+    .maybeSingle()
 
   if (error || !data) {
-    return { error: NextResponse.json({ error: "Consentimiento invalido" }, { status: 403 }) }
+    return consentError()
   }
 
-  return { consent: data as ConsentResult }
+  const consent = data as ConsentResult
+  if (!isActiveConsent(consent)) {
+    return consentError()
+  }
+
+  if (requiredScope && !hasConsentScope(consent, requiredScope)) {
+    return scopeError()
+  }
+
+  return { consent }
+}
+
+export async function requireActiveConsentScope(
+  supabase: SupabaseClient,
+  coachId: string,
+  athleteId: string,
+  requiredScope: DbConsentScope
+): Promise<{ consent: ConsentResult } | { error: NextResponse }> {
+  return requireActiveConsent(supabase, coachId, athleteId, requiredScope)
 }
 
 /**
@@ -49,9 +111,13 @@ export function requireConsentScope(
   consent: ConsentResult,
   requiredScope: DbConsentScope
 ): { ok: true } | { error: NextResponse } {
-  const scopes = consent.scope as string[]
-  if (scopes.includes("full_access") || scopes.includes(requiredScope)) {
+  if (!isActiveConsent(consent)) {
+    return consentError()
+  }
+
+  if (hasConsentScope(consent, requiredScope)) {
     return { ok: true }
   }
-  return { error: NextResponse.json({ error: "Scope no permitido" }, { status: 403 }) }
+
+  return scopeError()
 }

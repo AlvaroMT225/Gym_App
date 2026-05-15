@@ -32,36 +32,43 @@ export async function GET(request: NextRequest) {
 
   try {
     const supabase = await createClient()
+    const now = new Date()
+    const weekFromNow = new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000)
+    const nowIso = now.toISOString()
 
-    const [
-      { data: consentsData, error: consentsError },
-      { data: proposalsData, error: proposalsError },
-    ] = await Promise.all([
-      supabase
-        .from("consents")
-        .select("id, expires_at, athlete:profiles!athlete_id(id, first_name, last_name)")
-        .eq("coach_id", coachId)
-        .eq("status", "active"),
-      supabase
-        .from("proposals")
-        .select("id, title, athlete:profiles!athlete_id(id, first_name, last_name)")
-        .eq("coach_id", coachId)
-        .eq("type", "routine")
-        .eq("status", "sent"),
-    ])
+    const { data: consentsData, error: consentsError } = await supabase
+      .from("consents")
+      .select("id, athlete_id, expires_at, athlete:profiles!athlete_id(id, first_name, last_name)")
+      .eq("coach_id", coachId)
+      .eq("status", "active")
+      .is("revoked_at", null)
+      .not("is_hidden_by_athlete", "is", true)
+      .or(`expires_at.is.null,expires_at.gt.${nowIso}`)
 
     if (consentsError) {
       console.error("GET /api/trainer/alerts consents error:", consentsError)
       return NextResponse.json({ error: "Error al obtener alertas" }, { status: 500 })
     }
 
+    const validAthleteIds = Array.from(
+      new Set((consentsData ?? []).map((consent: any) => consent.athlete_id).filter(Boolean))
+    ) as string[]
+
+    const { data: proposalsData, error: proposalsError } =
+      validAthleteIds.length > 0
+        ? await supabase
+            .from("proposals")
+            .select("id, title, athlete:profiles!athlete_id(id, first_name, last_name)")
+            .eq("coach_id", coachId)
+            .in("athlete_id", validAthleteIds)
+            .eq("type", "routine")
+            .eq("status", "sent")
+        : { data: [], error: null }
+
     if (proposalsError) {
       console.error("GET /api/trainer/alerts proposals error:", proposalsError)
       return NextResponse.json({ error: "Error al obtener alertas" }, { status: 500 })
     }
-
-    const now = new Date()
-    const weekFromNow = new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000)
 
     type AlertSeverity = "error" | "warning" | "info"
     type AlertEntry = {
@@ -89,18 +96,7 @@ export async function GET(request: NextRequest) {
       const expiresAt = new Date(consent.expires_at)
       const href = `/trainer/clients/${athlete.id}`
 
-      if (expiresAt <= now) {
-        alerts.push({
-          id: `expired-${consent.id}`,
-          type: "consent_expired",
-          severity: "error",
-          clientId: athlete.id,
-          clientName: name,
-          clientAvatar: avatar,
-          message: `El consentimiento de ${name} ha expirado.`,
-          href,
-        })
-      } else if (expiresAt <= weekFromNow) {
+      if (expiresAt <= weekFromNow) {
         const daysLeft = Math.ceil((expiresAt.getTime() - now.getTime()) / (1000 * 60 * 60 * 24))
         alerts.push({
           id: `expiring-${consent.id}`,
