@@ -1,17 +1,26 @@
 import { NextRequest, NextResponse } from "next/server"
 import { requireRoleFromRequest } from "@/lib/auth/guards"
 import { createClient } from "@/lib/supabase/server"
+import { parseSessionMetadataNotes } from "@/lib/workout-flow-context"
 
 interface MachineRef {
   name: string | null
   primary_muscle_group: string | null
 }
 
+interface ExerciseRef {
+  id: string
+  name: string | null
+}
+
 interface QrSessionRef {
   id: string
   machine_id: string | null
+  exercise_id: string | null
   session_xp: number | null
   sets_data: unknown
+  notes: string | null
+  exercise: ExerciseRef | ExerciseRef[] | null
   machines: MachineRef | MachineRef[] | null
 }
 
@@ -33,6 +42,8 @@ interface WorkoutSessionRow {
 
 interface AllTimePrRow {
   machine_id: string | null
+  exercise_id: string | null
+  notes: string | null
   sets_data: unknown
 }
 
@@ -102,6 +113,10 @@ function parseLimit(value: string | null): number {
   return Number.isInteger(n) && n >= 1 && n <= 100 ? n : 20
 }
 
+function resolveQrExerciseId(row: { exercise_id: string | null; notes: string | null }) {
+  return row.exercise_id ?? parseSessionMetadataNotes(row.notes).exerciseId
+}
+
 export async function GET(request: NextRequest) {
   const sessionOrResponse = await requireRoleFromRequest(request, ["USER"])
   if (sessionOrResponse instanceof NextResponse) return sessionOrResponse
@@ -130,8 +145,11 @@ export async function GET(request: NextRequest) {
           qr_sessions(
             id,
             machine_id,
+            exercise_id,
             session_xp,
             sets_data,
+            notes,
+            exercise:exercises(id, name),
             machines(name, primary_muscle_group)
           )
           `,
@@ -144,7 +162,7 @@ export async function GET(request: NextRequest) {
         .range(offset, offset + limit - 1),
       supabase
         .from("qr_sessions")
-        .select("machine_id, sets_data")
+        .select("machine_id, exercise_id, notes, sets_data")
         .eq("athlete_id", userId),
     ])
 
@@ -153,16 +171,52 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: "Error al obtener historial" }, { status: 500 })
     }
 
-    // Build all-time max weight_kg per machine for this athlete
-    const allTimePrByMachine = new Map<string, number>()
-    for (const row of ((allTimePrResult.data ?? []) as AllTimePrRow[])) {
-      if (!row.machine_id) continue
-      const maxKg = maxWeightKgFromSets(row.sets_data)
-      const current = allTimePrByMachine.get(row.machine_id) ?? 0
-      if (maxKg > current) allTimePrByMachine.set(row.machine_id, maxKg)
+    const sessions = (sessionsResult.data ?? []) as WorkoutSessionRow[]
+    const exerciseIds = new Set<string>()
+    for (const session of sessions) {
+      for (const qr of session.qr_sessions ?? []) {
+        const exerciseId = resolveQrExerciseId(qr)
+        if (exerciseId) exerciseIds.add(exerciseId)
+      }
     }
 
-    const history = ((sessionsResult.data ?? []) as WorkoutSessionRow[]).map((session) => {
+    const exerciseNameById = new Map<string, string | null>()
+    if (exerciseIds.size > 0) {
+      const { data: exerciseRows, error: exerciseError } = await supabase
+        .from("exercises")
+        .select("id, name")
+        .in("id", [...exerciseIds])
+
+      if (exerciseError) {
+        console.error("GET /api/client/routines/history exercises query error:", exerciseError)
+        return NextResponse.json({ error: "Error al resolver ejercicios del historial" }, { status: 500 })
+      }
+
+      for (const row of ((exerciseRows ?? []) as ExerciseRef[])) {
+        exerciseNameById.set(row.id, row.name)
+      }
+    }
+
+    // Build all-time max weight_kg per exercise. Legacy rows without exercise context keep machine fallback.
+    const allTimePrByExercise = new Map<string, number>()
+    const allTimePrByMachine = new Map<string, number>()
+    for (const row of ((allTimePrResult.data ?? []) as AllTimePrRow[])) {
+      const maxKg = maxWeightKgFromSets(row.sets_data)
+      const exerciseId = resolveQrExerciseId(row)
+
+      if (exerciseId) {
+        const current = allTimePrByExercise.get(exerciseId) ?? 0
+        if (maxKg > current) allTimePrByExercise.set(exerciseId, maxKg)
+        continue
+      }
+
+      if (row.machine_id) {
+        const current = allTimePrByMachine.get(row.machine_id) ?? 0
+        if (maxKg > current) allTimePrByMachine.set(row.machine_id, maxKg)
+      }
+    }
+
+    const history = sessions.map((session) => {
       const routine = resolveSingle(session.routine)
       const routineName = routine?.name ?? "Rutina completada"
 
@@ -178,10 +232,23 @@ export async function GET(request: NextRequest) {
 
       const exercises = (session.qr_sessions ?? []).map((qr) => {
         const machine = resolveSingle(qr.machines)
+        const joinedExercise = resolveSingle(qr.exercise)
+        const exerciseId = resolveQrExerciseId(qr)
+        const exerciseName = exerciseId
+          ? (joinedExercise?.id === exerciseId ? joinedExercise.name : exerciseNameById.get(exerciseId) ?? null)
+          : null
         const pr = extractPrFromSets(qr.sets_data)
-        const allTimePr = qr.machine_id ? (allTimePrByMachine.get(qr.machine_id) ?? 0) : 0
+        const allTimePr = exerciseId
+          ? (allTimePrByExercise.get(exerciseId) ?? 0)
+          : qr.machine_id
+            ? (allTimePrByMachine.get(qr.machine_id) ?? 0)
+            : 0
         return {
           id: qr.id,
+          exerciseId,
+          exerciseName,
+          exercise_id: exerciseId,
+          exercise_name: exerciseName,
           machineId: qr.machine_id ?? null,
           machineName: machine?.name ?? null,
           sessionXp: qr.session_xp ?? 0,
